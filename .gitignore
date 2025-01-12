@@ -1,6 +1,6 @@
 Dockerfile
 conf.env
-composer.lock
+/app/composer.lock
 /app/application.php
 /app/vendor/*
 /app/views/latte/*
