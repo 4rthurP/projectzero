@@ -1,0 +1,115 @@
+{block notif}
+    {if !$page_success}
+        <div class="container-fluid position-fixed top-0 mt-5 d-flex justify-content-center align-items-center " style="z-index: 10;">
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                {if $page_message == 'form-error'}
+                    <strong>One or more fields that you submitted are incorrect...</strong> <br>
+                    Get your shit together before resubmiting this form that I created with all my love.
+                {else}
+                    <strong>This is strange.</strong> An unknwon error occured ({$page_message}).
+                {/if}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        </div>
+    {/if}
+{/block}
+
+{block popup}
+<div id="popup-background"></div>
+
+<div class="popup-container" id="main-popup">
+    <div class="popup-header">
+        <h2 class="popup-title"></h2>
+        <p class="popup-subtitle"></p>
+    </div>
+    <div class="popup-close" id="popup-close" onclick="closePopup()"><i class="bi bi-x"></i></div>
+    <div class="popup-content"></div>
+    <div class="popup-footer"></div>
+</div>
+
+{if isset($response)}
+<script>window.addEventListener("DOMContentLoaded", function() {
+    showNotif("error", "Une erreur est survenue lors de la création du vin. Veuillez réessayer.", {$response->getAnswer()});
+});</script>
+{/if}
+{/block}
+
+{block debuger}
+<div class="accordion position-sticky top-0 w-100" id="debuger-container" style="z-index: 1050;">
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="headingOne">
+            <button class="accordion-button py-2 px-4" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+            Debug Information
+            </button>
+        </h2>
+        <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#debuger-container">
+            {if $action_request}
+                <b>Request (action)</b>
+                <p>
+                {foreach $action_request->toArray() as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $view_request}
+                <b>Request (view)</b>
+                <p>
+                {foreach $view_request->toArray() as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $response}
+                <b>Response</b>
+                <p>
+                {foreach $response->toArray() as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $form_data}
+                <b>Form Data</b>
+                <p>
+                {foreach $form_data as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $action_serving}
+                <b>Action Serving</b>
+                <p>
+                {foreach $action_serving as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $action_routing}
+                <b>Action Routing</b>
+                <p>
+                {foreach $action_routing as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $view_serving}
+                <b>View Serving</b>
+                <p>
+                {foreach $view_serving as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+            {if $view_routing}
+                <b>View Routing</b>
+                <p>
+                {foreach $view_routing as $key => $value}
+                    <b>{$key}</b> : {php var_dump($value)} - 
+                {/foreach}
+                </p>
+            {/if}
+
+
+        </div>
+    </div>
+</div>
+{/block}

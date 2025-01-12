@@ -1,0 +1,8 @@
+Dockerfile
+conf.env
+composer.lock
+/app/application.php
+/app/vendor/*
+/app/views/latte/*
+/app/database/backups/*
+/app/views/layouts/layout.latte

@@ -1,0 +1,24 @@
+{layout 'layouts/layout.latte'}
+{block tab-title}Arpege{/block}
+
+{block title}
+    <h1>We are glad that you are joining us !</h1>
+{/block}
+
+{block content}
+    <div class="modal">
+        <h2>We just need a few informations :</h2>
+        <form method="POST" id="user-register" action="" class="form_vertical_flex">
+
+            {if $from !== null}
+                <input type="hidden" name="from" value="{$from}">
+            {/if}
+
+            <input type="text" placeholder="Username" name="username" id="username">
+            <input type="text" placeholder="Email" name="email" id="email">
+            <input type="password" placeholder="Password" name="password" id="password">
+                    
+            <input type="submit" class="cta cta-primary" value="Register">
+        </form>
+    </div>
+{/block}

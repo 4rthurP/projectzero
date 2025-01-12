@@ -1,0 +1,98 @@
+{define form-clues, $name, $form_data}
+    <div class="input-clues" id="{$name}-input-clues">
+        {if isset($form_data['messages'])}
+            {foreach $form_data['messages'] as $message}
+                <p class="input-clue input-clue-{$message[0]}">{$message[2]}</p>
+            {/foreach}
+        {/if}
+    </div>
+{/define}
+
+{define form-input, $name, $type, $label, $form_data, $placeholder, $required = false, $autocomplete = 'off', $size, $classes}
+    <div class="d-flex flex-column">
+        <label for={$name}>{$label}</label>
+        <input 
+            type={$type} 
+            name={$name} 
+            placeholder={$placeholder}
+            {if $autocomplete == 'off'}autocomplete="off"{/if}
+            {if $required}required{/if}
+            {if isset($form_data)}{if isset($form_data['value'])}  value={$form_data['value']} {/if}{/if}
+            class="form-control{if $classes}{foreach $classes as $class} {$class}{/foreach}{/if}{if $size} form-control-{$size}{/if}"
+            >
+        {include form-clues, name: $name, form_data: $form_data}
+    </div>
+{/define}
+
+{define form-radio, $name, $label, $form_data, $size, $classes}
+    <div class="d-flex flex-column">
+        <div class="d-flex flex-row">
+            <input 
+                type="radio" 
+                name={$name} 
+                class="form-control{if $classes}{foreach $classes as $class} {$class}{/foreach}{/if}{if $size} form-control-{$size}{/if}"
+                {if isset($form_data)}{if isset($form_data['value'])}{if $form_data['value']}selected{/if}{/if}{/if}>
+            <label for={$name}>{$label}</label>
+        </div>
+        {include form-clues, name: $name, form_data: $form_data}
+    </div>
+{/define}
+
+{define form-range, $name, $label, $form_data, $placeholder, $min, $max, $size, $classes}
+    <div class="d-flex flex-column">
+        <label for={$name}>{$label}</label>
+        <input 
+            type="range" 
+            min={$min}
+            max={$max}
+            name={$name} 
+            placeholder={$placeholder}
+            class="form-control{if $classes}{foreach $classes as $class} {$class}{/foreach}{/if}{if $size} form-control-{$size}{/if}"
+            {if isset($form_data)}{if isset($form_data['value'])}  value={$form_data['value']} {/if}{/if}>
+        {include form-clues, name: $name, form_data: $form_data}
+    </div>
+{/define}
+
+{define form-select, $name, $label, $options, $form_data, $size, $classes}
+    {var $selected_value = null}
+    {if isset($form_data['value'])}
+        {var $selected_value = $form_data['value']}
+    {/if}
+
+    <div class="d-flex flex-column">
+        <label for={$name}>{$label}</label>
+        <select 
+            name={$name}
+            class="form-select{if $classes}{foreach $classes as $class} {$class}{/foreach}{/if}{if $size} form-select-{$size}{/if}"
+            >
+            {foreach $options as $opt => $val}
+                <option value={$opt} {if $selected_value == $opt}selected{/if}>{$val}</option>
+            {/foreach}
+        </select>
+        {include form-clues, name: $name, form_data: $form_data}
+    </div>
+{/define}
+
+{define form-search, $name, $label, $default_value, $search_endpoint, $search_filters, $required, $size, $classes}
+    <div class="d-flex flex-column search-bar">
+        <label for={$name}>{$label}</label>
+        {var $selected_value = null}
+        <input 
+            type="text" 
+            name={$name} 
+            class="form-control search-bar-input{if $classes}{foreach $classes as $class} {$class}{/foreach}{/if}{if $size} form-control-{$size}{/if}"
+            value={$default_value}
+            autocomplete="off"
+            {if $required}required{/if}
+            aria-search-endpoint={$search_endpoint} 
+            {if search_filters}aria-search-filters={$search_filters}{/if}
+            >
+        <div style="height: 0px;">
+            <ul class="list-group search-bar-results d-none">
+                {if $default_value}
+                <li class="list-group-item position-absolute">{$default_value}</li>
+                {/if}
+            </ul>
+        </div>
+    </div>
+{/define}
