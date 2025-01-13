@@ -16,7 +16,6 @@ if($application->getUser() !== null) {
 }
 
 $page_params = [
-    'messages' => $response->getMessages(),
     'from' => $_GET['FROM'] ?? null
 ];
 
