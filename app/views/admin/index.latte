@@ -9,7 +9,7 @@
         </div>
         {if !$database_is_ready}
             <form method="POST">
-                <input type="hidden" name="action" value="admin/initializeDatabase">
+                <input type="hidden" name="action" value="admin/generateDatabase">
                 <input type="hidden" name="model_list" value="{$model_list}">
                 <button type="submit" class="btn btn-primary">Initialize database</button>
             </form>

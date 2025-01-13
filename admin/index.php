@@ -9,7 +9,7 @@ if($response->hasRedirect()) {
 
 $database_is_ready = Database::runQuery("SHOW TABLES LIKE 'users';")->num_rows > 0;
 
-$model_list = $application->getModels() ;
+$model_list = $application->getModels();
 $models = [];
 foreach($model_list as $model) {
     $object = new $model();

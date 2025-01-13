@@ -18,6 +18,8 @@ class Application {
     private Array $actions;
     private Array $models;
 
+    private $user_class = User::class;
+
     private ?Privacy $default_privacy;
     private String $path_prefix = '';
     private Array $default_latte_params = [];
@@ -60,7 +62,17 @@ class Application {
         $this->initialize();
         $request = new Request();
         $is_api_call = false;    
-        
+
+        // Check if the user table is defined, if not, redirect to the install page
+        if($this->user_class != null && $_SERVER['SCRIPT_NAME'] != '/install.php') {
+            $user_table_name = (new $this->user_class())->getModelTable();
+            $user_table_defined = Database::runQuery("SHOW TABLES LIKE '$user_table_name'")->num_rows > 0;
+
+            if(!$user_table_defined) {
+                header("Location: /install.php");
+            }
+        }
+                
         // Handle the user session (nonce, cookies, etc.)
         if(isset($_SESSION['user'])){
             $this->user_id = $_SESSION['user']['id'];
@@ -258,6 +270,9 @@ class Application {
     # Application configuration
     ##############################
     public function bundle(String $bundle_name,  ?Privacy $default_privacy = null): Application {
+        if($this->user_class == null) {
+            $default_privacy = Privacy::PUBLIC;
+        }
         $bundle = new Application($bundle_name, $default_privacy);
         $this->bundles[$bundle_name] = $bundle;
         return $bundle;
@@ -269,6 +284,9 @@ class Application {
     }
 
     public function view(String $view_path, String|null $template, Method|Array|null $view_methods = null, Privacy|null $view_privacy = null, String|null $controller = null, String|null $function = null, String|null $success_location = null, bool $isForm = false): Application {
+        if($this->user_class == null) {
+            $view_privacy = Privacy::PUBLIC;
+        }
         $view_path = $this->path_prefix.$view_path;
 
         if(array_key_exists($view_path, $this->views)) {
@@ -298,16 +316,22 @@ class Application {
     }
 
     public function form(String $view_path, String|null $template, String|null $controller, String|null $function, Privacy|null $view_privacy = null, String|null $success_location = null): Application {
+        if($this->user_class == null) {
+            $view_privacy = Privacy::PUBLIC;
+        }
         return $this->view($view_path, $template, [Method::POST, Method::GET], $view_privacy, $controller, $function, $success_location, true);
     }
     
-    public function latteParams(Array $latter_params) {
-        $this->default_latte_params = $latter_params;
+    public function latteParams(Array $latte_params) {
+        $this->default_latte_params = $latte_params;
         return $this;
     }
 
     #TODO: add default locations
     public function action(String $action_path, String $controller_name, String $function_name, Method|Array|null $action_method = Method::GET, Privacy|null $action_privacy = Privacy::LOGGED_IN, ?String $action_model = null): Application {
+        if($this->user_class == null) {
+            $action_privacy = Privacy::PUBLIC;
+        }
         $action_path = $this->path_prefix.$action_path;
 
         if(array_key_exists($action_path, $this->actions)) {
@@ -340,6 +364,9 @@ class Application {
             throw new Exception('The model class '.$model_class_name.' does
             not exist.');
         }
+        if($this->user_class == null) {
+            $action_privacy = Privacy::PUBLIC;
+        }
         
         $controller = new $model_controller();
         $action_model = null;
@@ -366,6 +393,17 @@ class Application {
         return $this;
     }
 
+    /**
+     * Sets the user class of the application.
+     *
+     * @param string|null $user_class The user class to set. Can be null.
+     * @return $this
+     */
+    public function setUserClass(?String $user_class) {
+        $this->user_class = $user_class;
+        return $this;
+    }
+
     ##############################
     # Getters
     ##############################
@@ -384,6 +422,10 @@ class Application {
 
     public function getModels(): Array {
         return $this->models;
+    }
+
+    public function getUserClass(): ?String {
+        return $this->user_class;
     }
 
     public function getUser() {

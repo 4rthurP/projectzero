@@ -74,7 +74,9 @@ class Database {
             throw new Exception("Number of paramTypes does not match the number of parameters");
         }
         
-        $stmt->bind_param($paramTypes, ...$params);
+        if(strlen($paramTypes) > 0) {
+            $stmt->bind_param($paramTypes, ...$params);
+        }
         $stmt->execute();
         return $stmt->insert_id;
     }

@@ -6,19 +6,19 @@
 {/block}
 
 {block content}
-    <div class="modal">
+    <div class="card">
         <h2>We just need a few informations :</h2>
-        <form method="POST" id="user-register" action="" class="form_vertical_flex">
+        <form method="POST" id="user-register" class="d-flex flex-column gap-3">
 
             {if $from !== null}
                 <input type="hidden" name="from" value="{$from}">
             {/if}
 
-            <input type="text" placeholder="Username" name="username" id="username">
-            <input type="text" placeholder="Email" name="email" id="email">
-            <input type="password" placeholder="Password" name="password" id="password">
+            <input type="text" placeholder="Username" name="username" id="username" class="form-control">
+            <input type="text" placeholder="Email" name="email" id="email" class="form-control">
+            <input type="password" placeholder="Password" name="password" id="password" class="form-control">
                     
-            <input type="submit" class="cta cta-primary" value="Register">
+            <input type="submit" class="btn btn-primary" value="Register">
         </form>
     </div>
 {/block}
