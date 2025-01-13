@@ -33,7 +33,7 @@ class BaseAdminController extends Controller {
 
         //Then we generate the tables for all the models used in the project (we disables the update_table_if_exist option to only do it once at the end)
         foreach($model_list as $model) {
-            $model::generateTableForModel($model, false, $update_table_if_exist, $drop_tables_if_exist, $force_table_update);
+            $model::generateTableForModel(false, $update_table_if_exist, $drop_tables_if_exist, $force_table_update);
         }
 
         //Finally we backup the database structure
