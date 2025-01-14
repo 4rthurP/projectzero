@@ -90,14 +90,14 @@ class ModelAttributeLink extends ModelAttribute
      * @throws Exception If the relation ID is not passed when the attribute is inversed.
      */
     protected function fetch(): void {
-        if(!$this->is_inversed) {
-            $value = ModelQuery::fromModel($this->target)->where($this->target_column, $this->object_id)->loadRelations()->fetch();
+        if($this->is_inversed) {
+            $value = ModelQuery::fromModel($this->target)->where($this->target_column, $this->object_id)->fetch();
             $this->setAttributeValue($value);
             return;
         } 
         
         if($this->target_id != null) {
-            $value = ModelQuery::fromModel($this->target)->where($this->target_idKey, $this->target_id)->fetch();
+            $value = ModelQuery::fromModel($this->target)->where($this->target_idKey, $this->target_id)->loadRelations()->fetch();
             $this->setAttributeValue($value);
             return;
         }

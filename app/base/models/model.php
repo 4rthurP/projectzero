@@ -641,9 +641,9 @@ class Model
             } elseif ($loadRelations) {
                 #For inversed links the id of the linked model is stored in the same table as the model so we already have the info loaded
                 if ($attribute->is_link && $attribute->is_inversed) {
-                    $attribute->getAttributeValue(true, true, $this->id);
+                    $attribute->getAttributeValue(true, true, $this->id, $attributes_array[$attribute->target_idKey]);
                 } else {
-                    $attribute->getAttributeValue(true, true, $this->id);
+                    $attribute->getAttributeValue(true, true, $this->id, $attributes_array[$attribute->model_column]);
                 }
             }
         }
