@@ -118,14 +118,25 @@ a {
 }
 
 .card-ghost {
-    background-color: var(--grey-30);
-    border: 2px dashed var(--main-color);
+    background-color: rgb(0,0,0,0);
+    border-color: var(--main-color);
+    border-width: 2px;
+    border-style: dashed;
+    border-spacing: 10px;
+    text-align: center;
 }
 
 .card-clickable:hover {
     cursor: pointer;
     box-shadow: var(--hover-shadow);
 } 
+
+.card-clickable button:focus,
+.card-clickable a:focus,
+.card-clickable button:hover,
+.card-clickable a:hover {
+    box-shadow: none;
+}
 
 .highlight {
     border: 1px solid var(--blue-100);
