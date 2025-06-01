@@ -5,191 +5,194 @@ namespace pz;
 use Exception;
 use DateTime;
 use DateTimeZone;
-use pz\database\{Database, Query, ModelQuery};
+use pz\Config;
+use pz\database\Database;
+use pz\database\Query;
 use pz\Enums\model\AttributeType;
 use Throwable;
 
-class ModelAttributeLinkThrough extends ModelAttributeLink
+class ModelAttributeLinkThrough extends AbstractModelAttribute
 {
+    public bool $is_link = true;
     public bool $is_link_through = true;
 
-    public readonly String|null $link_through_table;
-    public readonly String|null $link_through_model_column;
-    public readonly String|null $link_through_target_column;
-    public readonly String|null $link_through_model_type;
-    public readonly String|null $link_through_target_type;
+    public function __construct(String $name, String $model, String $bundle = 'default', bool $isInversed = false, bool $is_many = true, ?String $default_value = null, ?String $model_table = null, ?String $model_id_key = null, ?String $target_column = null, ?String $target = null, ?String $target_table = null, ?String $target_id_key = null, ?String $relation_table = null, ?String $relation_model_column = null, ?String $relation_model_type = null) {
+        $this->name = $name;
+        $this->type = AttributeType::RELATION;
+        $this->is_required = false;
+        $this->is_inversed = $isInversed;
+        $this->default_value = null; #TODO: we could have a default link value when the load by id is implemented
+        $this->bundle = $bundle;
 
-    public function __construct(String $name, object $model, object $target, String $model_column, String $target_column, String $n_links = 'one', bool $is_inversed = false, ?String $link_through_table = null, ?String $link_through_model_column = null, ?String $link_through_target_column = null, ?String $link_through_model_type = null, ?String $link_through_target_type = null)
-    {
-        parent::__construct($name, $model, $target, $model_column, $target_column, $n_links, $is_inversed, false, null);
+        $this->value = [];
 
-        $this->link_through_model_column = $link_through_model_column;
-        $this->link_through_target_column = $link_through_target_column;
-        $this->link_through_model_type = $link_through_model_type;
-        $this->link_through_target_type = $link_through_target_type;
+        $this->model = $model;
+        $this->model_table = $model_table ?? $this->makeRelationTableName();
+        $this->model_id_key = $model_id_key;
 
-        $this->link_through_table = $link_through_table ?? $this->makeRelationTableName('link');
+        if($this->is_inversed) {
+            $target_name = $model::getName();
+            $model_name = $target::getName();
+        } else {
+            $target_name = $target::getName();
+            $model_name = $model::getName();
+        }
 
+        if($target != null) {
+            $target_model = new $target();
+            $this->target = $target;
+            $this->target_table = $target_model->table;
+            $this->target_id_key = $target_model->getIdKey();
+            $this->target_id_type = $target_model->idType;
+            $this->target_column = $target_column ?? $target_name . '_id';     
+        } else {
+            if($target_table == null) {
+                throw new Exception("You need to provide at least a target object or a target table for the link attribute.");
+            }
+            $this->target = null;
+            $this->target_table = $target_table;
+            $this->target_id_key = $target_id_key ?? 'id';
+            $this->target_id_type = AttributeType::ID;
+            $this->target_column = $target_column;
+        }
+
+        $this->relation_table = $relation_table ?? $this->makeRelationTableName('relation', $is_many);
+
+        if($is_many) {
+            $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
+            $this->relation_model_column = $relation_model_column ?? $target_name . 'able_id';
+        } else {
+            $this->relation_model_type = $relation_model_type;
+            $this->relation_model_column = $relation_model_column ?? $model_name . '_id';
+        }
+                
         return $this;
     }
 
-    protected function get(bool $as_object = false)
-    {
-        if($as_object == true) {
+    protected function getAttributeValue() {
+        if($this->target == null) {
             return $this->value;
         }
 
-        return $this->value->map(fn($item) => $item->toArray());
-    }
-
-    /**
-     * Loads the attribute value from the database for the specified object
-     * Warning : this method creates a database call, for attributes that are stored within the model table, using the model's load function would be more efficient when laoding multiple attributes
-     *
-     * @param int $object_id The ID of the object.
-     * @param int|null $relation_id The ID of the relation (optional).
-     * @return $this The current instance of the model attribute.
-     * @throws Exception If the relation ID is not passed when the attribute is inversed.
-     */
-    protected function fetch(): void {
-        if($this->target_id === null) {
-            $list_of_values = Query::from($this->link_through_table)->get($this->link_through_target_column)->where($this->link_through_model_column, $this->object_id);
-
-            if($this->link_through_model_type !== null) {
-                $list_of_values->where($this->link_through_model_type, $this->model);
-            }
-            if($this->link_through_target_type !== null) {
-                $list_of_values->where($this->link_through_target_type, $this->target::getName());
-            }
-    
-            $list_of_values = $list_of_values->fetchAsArray();
-            $this->target_id = array_map(fn($item) => $item['id'], $list_of_values);
+        $parsed_value = [];
+        foreach($this->value as $item) {
+            $parsed_value[] = $item->toArray();
         }
-
-
-        #TODO: test this + check that we have at most one link of 'one' relations and more than 0 for required attributes
-        return;
+        return $parsed_value;
     }
 
-    /**
-     * This method only trigger an UPDATE query with the current attribute value
-     * To change and update a value at the same time use the setAttributeValue() method with the $update_in_db param set to true
-     *
-     * @return self The instance of the object
-     */
-    protected function updateAttributeValue(): self
-    {
-        ///TODO: add option to delete the old values
-        if($this->link_through_table === null) {
+    protected function setAttributeValue($attribute_value, bool $is_creation = false): static {
+        $this->value = [];
+        if($attribute_value === null || $attribute_value === []) {
             return $this;
-        }
-
-        // Get the current ressources that we need to link to this model
-        $list_target_ids = $this->value->map(fn($item) => $item->id);
-
-        // Get the real list of ressources that are already linked to this model
-        $query = Query::from($this->link_through_table);
-        $query->where($this->link_through_model_column, $this->object_id);
-
-        if($this->link_through_model_type !== null) {
-            $query->where($this->link_through_model_type, $this->model);
-        }
-        if($this->link_through_target_type !== null) {
-            $query->where($this->link_through_target_type, $this->target::getName());
         }
         
-        $query->get($this->link_through_target_column);
-
-        $current_targets_in_db = $query->fetch();
-        $current_target_ids = array_map(fn($item) => $item['id'], $current_targets_in_db);
-
-        // Find the targets to add and to remove
-        $targets_to_add = array_diff($list_target_ids, $current_target_ids);
-        $targets_to_remove = array_diff($current_target_ids, $list_target_ids);
-
-        // Add the new targets
-        foreach($targets_to_add as $target_id) {
-            Database::execute("INSERT INTO $this->link_through_table ($this->link_through_model_column, $this->link_through_target_column) VALUES (?, ?)", 
-            $this->model_idSQLType.$this->target_idSQLType, $this->object_id, $target_id);
+        if(is_object($attribute_value)) {
+            $values = [$attribute_value];
+        } elseif(is_array($attribute_value)) {
+            if(!is_object($attribute_value[0]) && ! is_array($attribute_value[0])) {
+                $values = [$attribute_value];
+            } else {
+                $values = $attribute_value;
+            }
+        } else {
+            #TODO: add the possibiltiy to load from ID ?
+            throw new Exception("Attribute value must be an object or an array.");
         }
+        
+        foreach($values as $value) {
+            try {
+                $parsed_value = $this->parseValue($value);
+                if($this->target != null) {
+                    $id = $parsed_value->getId();
+                } else {
+                    $id = $parsed_value[$this->target_id_key];
+                }
+                $this->value[$id] = $parsed_value;
+            } catch (Throwable $e) {
+                $this->messages[] = ['error', 'attribute-type', $e->getMessage()];
+                $this->is_valid = false;
+                return $this;
+            }
+        }
+        return $this;
+    }
+    protected function updateAttributeValue(): static {
+        if($this->object_id === null) {
+            throw new Exception("Object ID not set");
+        }
+        
+        $datetime = new DateTime("now", Config::tz());
+        $datetime = $datetime->format('Y-m-d H:i:s');
 
-        // Remove the old targets
-        Database::execute('DELETE FROM $this->link_through_table WHERE $this->link_through_model_column = ? AND $this->link_through_target_column IN ('.implode(',', $targets_to_remove).')', $this->model_idSQLType, $this->object_id);
-
+        $found_relations = $this->findRelations();
+        
+        $list_of_ids = array_map(fn($item) => $item[$this->target_column], $found_relations);
+        foreach($this->value as $target_id => $item) {
+            if(!in_array($target_id, $list_of_ids)) {
+                if($this->relation_model_type == null) {
+                    Database::execute("INSERT INTO $this->relation_table ($this->relation_model_column, $this->target_column) VALUES (?, ?)", "ss", $this->object_id, $target_id);
+                } else {
+                    Database::execute("INSERT INTO $this->relation_table ($this->relation_model_column, $this->target_column, $this->relation_model_type) VALUES (?, ?, ?)", "sss", $this->object_id, $target_id, $this->model::getName());
+                }
+            } else {
+                $list_of_ids = array_diff($list_of_ids, [$target_id]);
+            }
+        }
+        foreach($list_of_ids as $item) {
+            if($this->relation_model_type == null) {
+                Database::execute("DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ?", "ss", $this->object_id, $item); 
+            } else {
+                Database::execute("DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ? AND $this->relation_model_type = ?", "sss", $this->object_id, $item, $this->model::getName());
+            }
+        }
+        
+        
         return $this;
     }
 
-    public function addLink($target_id, $load_target_from_db = true): self
-    {
-        if($load_target_from_db) {
-            $target = $this->target::load($target_id);
-            if($target === null) {
-                throw new Exception("The target with ID $target_id does not exist.");
-            }
-            $this->value[$target_id] = $target;
+    protected function fetchAttributeValue() {
+        $found_relations = $this->findRelations();
+        if(count($found_relations) == 0) {
+            return null;
         }
-        // Add the link to the target
-        Database::execute("INSERT INTO $this->link_through_table ($this->link_through_model_column, $this->link_through_target_column) VALUES (?, ?)", 
-        $this->model_idSQLType.$this->target_idSQLType, $this->object_id, $target_id);
-        return $this;
+        
+        $list_of_ids = array_map(fn($item) => $item[$this->target_column], $found_relations);
+        
+        $found_values = Query::from($this->target_table)->whereIn($this->target_id_key, $list_of_ids)->fetch();
+        
+        if(count($found_values) == 0) {
+            return null;
+        }
+        
+        return $found_values;
     }
 
-    public function removeLink($target_id = null, $update_in_db = true, $delete_target = false): self
-    {
-
-        if($target_id === null) {
-            return $this;
+    protected function findRelations() {
+        $relation_query = Query::from($this->relation_table)->get($this->target_column)->where($this->relation_model_column, $this->object_id);
+        if($this->relation_model_type != null) {
+            $relation_query->where($this->relation_model_type, $this->model::getName());
         }
-
-        unset($this->value[$target_id]);
-
-        if($update_in_db) {
-            // Remove the link to the target
-            $sql_query = "DELETE FROM $this->link_through_table WHERE $this->link_through_model_column = ? AND $this->link_through_target_column = ?";
-
-            $params_type = $this->model_idSQLType.$this->target_idSQLType;
-            $params = [$this->object_id, $target_id];
-
-            if($this->link_through_model_type !== null) {
-                $sql_query .= " AND $this->link_through_model_type = ?";
-                $params_type .= 's';
-                $params[] = $this->model;
-            }
-
-            if($this->link_through_target_type !== null) {
-                $sql_query .= " AND $this->link_through_target_type = ?";
-                $params_type .= 's';
-                $params[] = $this->target::getName();
-            }
-
-            Database::execute($sql_query, $params_type, ...$params);
-    
-            if($delete_target) {
-                Database::execute("DELETE FROM $this->target_table WHERE $this->target_column = ?", $this->target_idSQLType, $target_id);
-            }
-            return $this;
-        }
+        return $relation_query->fetch();
     }
 
-    /**
-     * Generates a theorical name for the relation table based on the source and target models and their cardinalities.
-     *
-     * @param string $mode Wether we are looking for the name of the source table, the target table or the link_through table.
-     * @return string The name of the relation table.
-     */
-    protected function makeRelationTableName(String $mode = 'source'): String
-    {
-        if($mode != 'link') {
-            return parent::makeRelationTableName($mode);
+    protected function parseValue($value) {
+        if($this->target != null) {
+            if(is_a($value, $this->target)) {
+                return $value;
+            } elseif(is_array($value) && array_key_exists($this->target_id_key, $value)) {
+                $target = new $this->target();
+                $target->loadFromArray($value);
+                if($target->isValid()) {
+                    return $target;
+                }
+                return null;
+            }
+            throw new Exception("Attribute value must be an object of type " . $this->target);
+        } 
+        if(!in_array($this->target_id_key, array_keys($value))) {
+            throw new Exception("The attribute value must have a key named $this->target_id_key");
         }
-
-        $name = $this->bundle == 'default' ? '' : $this->bundle . '_';
-
-        if($this->is_inversed) {
-            return $name . $this->target::getName().'_'.$this->model.'s';
-        }
-
-        return $name . $this->model.'_'.$this->target::getName().'s';
+        return $value;
     }
 }
-?>

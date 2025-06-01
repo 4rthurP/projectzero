@@ -17,6 +17,7 @@ enum ResponseCode: int {
     case GatewayTimeout = 504;
     case UnknownError = 520;
     case Ok = 200;
+    case Redirect = 302;
 
     public function toParam(): string {
         return match($this) {
@@ -32,6 +33,7 @@ enum ResponseCode: int {
             ResponseCode::UnknownError => 'unknown_error',
             ResponseCode::BadRequestContent => 'bad_request_content',
             ResponseCode::Ok => 'ok',
+            ResponseCode::Redirect => 'redirect',
         };
     }
 }

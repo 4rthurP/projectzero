@@ -2,14 +2,20 @@
 
 namespace pz;
 
-use Attribute;
 use Exception;
 use DateTime;
 use DateTimeZone;
 
-use pz\{ModelAttribute, ModelAttributeLink, ModelAttributeLinkThrough};
-use pz\database\{Database, ModelQuery, Query};
-use pz\Enums\Routing\{Privacy};
+use pz\Config;
+use pz\Log;
+use pz\{
+    ModelAttribute,
+    ModelAttributeLink, 
+    ModelAttributeLinkThrough
+};
+use pz\database\Database;
+use pz\database\Query;
+use pz\Enums\Routing\Privacy;
 use pz\Enums\model\AttributeType;
 
 class Model
@@ -145,7 +151,7 @@ class Model
         }
 
         $column = $column ?? $name;
-        $attribute = new ModelAttribute($name, $type, $required, $default_value, static::$name, static::$bundle, $this->table, $this->idKey, $column);
+        $attribute = new ModelAttribute($name, $type, get_class($this), static::$bundle, $required, $default_value, $this->table, $this->idKey, $column);
 
         $this->attributes[$name] = $attribute;
         return $attribute;
@@ -182,7 +188,7 @@ class Model
         }
 
         //The id attribute is always required, but is not defined as such in the attribute definition because it would cause conflicts when creating the model (requiring the id attribute to be defined before the ressource is created in the db)
-        $attribute = new ModelAttribute($name, $idType, false, null, static::$name, static::$bundle, $this->table, $column);
+        $attribute = new ModelAttribute($name, $idType, get_class($this), static::$bundle, false, null, $this->table, $name, $column);
 
         $this->attributes[$name] = $attribute;
 
@@ -226,7 +232,7 @@ class Model
             return $this;
         }
 
-        $attribute = new ModelAttribute($userKey, AttributeType::INT, true, null, static::$name, static::$bundle, $this->table, $userKey);
+        $attribute = new ModelAttribute($userKey, AttributeType::INT, get_class($this), static::$bundle, true, null, $this->table, $this->idKey, $userKey);
 
         $this->attributes[$userKey] = $attribute;
 
@@ -251,7 +257,7 @@ class Model
      * @return self Returns the model instance.
      * @throws Exception Throws an exception if timestamps have already been defined.
      */
-    protected function timestamps(bool $hasTimestamps = true, String $timestampCreatedAtName = 'created_at', String $timestampUpdatedAtName = 'updated_at', String $timestampDeletedAtName = 'deleted_at'): self
+    protected function timestamps(bool $hasTimestamps = true, ?String $timestampCreatedAtName = 'created_at', ?String $timestampUpdatedAtName = 'updated_at', String $timestampDeletedAtName = 'deleted_at'): self
     {
         if (!$this->is_initialized) {
             $this->initialize();
@@ -265,7 +271,7 @@ class Model
         
         if($this->hasTimeStamps && $timestampCreatedAtName !== null) {
             if(!$this->attributeExists($timestampCreatedAtName)) {
-                $this->attribute($timestampCreatedAtName, AttributeType::DATETIME, true, null, $timestampCreatedAtName);
+                $this->attribute($timestampCreatedAtName, AttributeType::DATETIME, true, null,  $timestampCreatedAtName);
             }
             $this->timestampCreatedAtName = $timestampCreatedAtName;
         } else {
@@ -305,14 +311,16 @@ class Model
     protected function softDelete(bool $is_soft_delete = true, String $timestampDeletedAtName = 'deleted_at'): self {
         if($is_soft_delete && $timestampDeletedAtName !== null) {
             if(!$this->attributeExists($timestampDeletedAtName)) {
-                $this->attribute($timestampDeletedAtName, AttributeType::DATETIME, false, null, $timestampDeletedAtName);
+                $this->attribute($timestampDeletedAtName, AttributeType::DATETIME, false, null,  $timestampDeletedAtName);
             }
             $this->timestampDeletedAtName = $timestampDeletedAtName;
+            $this->is_soft_delete = true;
         } else {
             if($this->attributeExists($timestampDeletedAtName)) {
                 $this->unsetAttribute($timestampDeletedAtName);
             }
             $this->timestampDeletedAtName = null;
+            $this->is_soft_delete = false;
         }
 
         return $this;
@@ -330,35 +338,30 @@ class Model
      * @return ModelAttribute The created link attribute.
      * @throws Exception If the target model is not a subclass of Model.
      */
-    protected function linkTo($target_classname, ?String $name = null, bool $is_required = false, ?String $model_column = null, ?String $target_column = null): ModelAttributeLink|null
+    protected function linkTo($target, ?String $name = null, bool $is_required = false, ?String $target_column = null): ModelAttributeLink|null
     {
         if(!$this->load_relations) {
             return null; 
         }
-
         if (!$this->is_initialized) {
             $this->initialize();
         }
 
-        if (!is_subclass_of($target_classname, Model::class)) {
+        if (!is_subclass_of($target, Model::class)) {
             throw new Exception("The target model must be a subclass of Model");
         }
 
-        if(isset($this->objects_to_links_dict[$target_classname])) {
+        if(isset($this->objects_to_links_dict[$target])) {
             throw new Exception("The link to the target model has already been defined");
         }
 
-        $target_name = $target_classname::getName();
-        $target = new $target_classname(false);
-        $name = $name ?? $target_name;
+        $default_value = null;
+        $name = $name ?? $target::getName();
 
-        $model_column = $model_column ?? $target_name . '_id';
-        $target_column = $target_column ?? $target->idKey;
-
-        $attribute = new ModelAttributeLink($name, $this, $target, $model_column, $target_column, 'one', false, $is_required);
+        $attribute = new ModelAttributeLink($name, get_class($this), static::$bundle, $is_required, false, $default_value, $this->table, $this->idKey, $target_column, $target);
 
         $this->attributes[$name] = $attribute;
-        $this->objects_to_links_dict[$target_classname] = $name;
+        $this->objects_to_links_dict[$target] = $name;
 
         return $attribute;
     }
@@ -375,32 +378,28 @@ class Model
      * @return ModelAttributeLink The created ModelAttributeLink object.
      * @throws Exception If the target model is not a subclass of Model.
      */
-    protected function linkedTo($target_classname, ?String $name = null, String $n_source = 'one', bool $is_required = false, ?String $target_model_column = null): ModelAttributeLink|null
+    protected function linkedTo($target, ?String $name = null, ?String $target_column = null): ModelAttributeLink|null
     {
         if(!$this->load_relations) {
             return null; 
         }
-
         if (!$this->is_initialized) {
             $this->initialize();
         }
 
-        if (!is_subclass_of($target_classname, Model::class)) {
+        if (!is_subclass_of($target, Model::class)) {
             throw new Exception("The target model must be a subclass of Model");
         }
 
-        if(isset($this->objects_to_links_dict[$target_classname])) {
+        if(isset($this->objects_to_links_dict[$target])) {
             throw new Exception("The link to the target model has already been defined");
         }
 
-        $target_name = $target_classname::getName();
-        $target = new $target_classname(false);
-        $name = $name ?? $target_name;
 
-        $model_column = $this->idKey;
-        $target_column = $target_model_column ?? static::$name . '_id';
+        $name = $name ?? $target::getName();
+        $default_value = null;
 
-        $attribute = new ModelAttributeLink($name, $this, $target, $model_column, $target_column, $n_source, true, $is_required);
+        $$attribute = new ModelAttributeLink($name, get_class($this), static::$bundle, false, false, $default_value, $this->table, $this->idKey, $target_column, $target);
 
         $this->attributes[$name] = $attribute;
         $this->objects_to_links_dict[$target_classname] = $name;
@@ -426,43 +425,30 @@ class Model
      * @return ModelAttributeLinkThrough The created model attribute representing the link.
      * @throws Exception If the target model is not a subclass of Model.
      */
-    protected function linkThrough($target_classname, String $n_links = 'many', bool $is_inversed = false, ?String $name = null, ?String $target_model_column = null, ?String $link_through_table = null, ?String $link_through_model_column = null, ?String $link_through_target_column = null, ?String $link_through_model_type = null, ?String $link_through_target_type = null): ModelAttributeLinkThrough|null
+    protected function linkThrough($target, ?String $name = null, bool $is_many = true, ?String $target_column = null, ?String $relation_table = null, ?String $relation_model_column = null, ?String $relation_model_type = null, bool $is_inversed = false): ModelAttributeLinkThrough|null
     {
         if(!$this->load_relations) {
             return null; 
         }
-
         if (!$this->is_initialized) {
             $this->initialize();
         }
 
-        if (!is_subclass_of($target_classname, Model::class)) {
+        if (!is_subclass_of($target, Model::class)) {
             throw new Exception("The target model must be a subclass of Model");
         }
 
-        if(isset($this->objects_to_links_dict[$target_classname])) {
+        if(isset($this->objects_to_links_dict[$target])) {
             throw new Exception("The link to the target model has already been defined");
         }
 
-        $target_name = $target_classname::getName();
-        $target = new $target_classname(false);
-        $name = $name ?? $target_name;
-
-        $model_column = $this->idKey;
-        $target_column = $target_model_column ?? static::$name . '_id';
-
-        if ($is_inversed == false) {
-            $link_through_table = $link_through_table ?? static::$bundle . '_' . static::$name . '_' . $target_name . 's';
-        } else {
-            $link_through_table = $link_through_table ?? static::$bundle . '_' . $target_name . '_' . static::$name . 's';
-        }
-        $link_through_model_column = $link_through_model_column ?? static::$name . '_id';
-        $link_through_target_column = $link_through_target_column ?? $target_name . '_id';
+        $name = $name ?? $target;
+        $default_value = null;
      
-        $attribute = new ModelAttributeLinkThrough($name, $this, $target, $model_column, $target_column, $n_links, $is_inversed, $link_through_table, $link_through_model_column, $link_through_target_column, $link_through_model_type, $link_through_target_type);
+        $attribute = new ModelAttributeLinkThrough($name, get_class($this), static::$bundle, $is_inversed, $is_many, $default_value, $this->table, $this->idKey, $target_column, $target, null, null, $relation_table, $relation_model_column, $relation_model_type);
 
         $this->attributes[$name] = $attribute;
-        $this->objects_to_links_dict[$target_classname] = $name;
+        $this->objects_to_links_dict[$target] = $name;
 
         return $attribute;
     }
@@ -475,53 +461,54 @@ class Model
      * The possibility to directly pass an array of attributes is kept for quicker use, but the use of checkForm($attributes_array)?->create() should be preferred when passing user inputed values
      *
      * @param array $attributes_array An array of attributes to be assigned to the record.
-     * @return self The created record.
+     * @return static The created record.
      */
-    public function create(null|array $attributes_array = null): null|self
+    public function create(null|array $attributes_array = null): null|static
     {
         if ($attributes_array != null) {
             $this->checkForm($attributes_array);
         }
 
         if (!$this->is_valid) {
-            return null;
+            return $this;
         }
 
-        $creation_date = new DateTime("now", new DateTimeZone($_ENV['TZ']));
+        $creation_date = new DateTime("now", Config::tz());
+        $link_attributes = [];
 
         $attributes = [];
         $params = [];
         $values = [];
         $types = [];
 
-        foreach ($this->attributes as $attribute) {
+        foreach ($this->attributes as $key => $attribute) {
             //Attributes are not saved in three cases
             // - When they are (numerical) IDs, note that UUID still needs to be set before or provided
-            // - When they are attributes stored in another table
-            // - When they are inversed relations
+            // - When they are attributes stored in another table (done later)
+            // - When they are inversed relations (done later)
             if ($attribute->type === AttributeType::ID) {
                 continue;
             }
 
             if($attribute->is_link) {
-                if(!$attribute->is_inversed && !$attribute->is_link_through && $attribute->n_links === 'one') {
-                    $attributes[] = $attribute->model_column;
+                if(!$attribute->is_inversed && !$attribute->is_link_through) {
+                    $attributes[] = $attribute->target_column;
                     $params[] = "?";
-                    $values[] = $attribute->target_id;
-                    $types[] = $attribute->model_idSQLType;
-                }
+                    $values[] = $attribute->getTargetId();
+                    $types[] = $attribute->getSQLQueryType();
+                }  
                 continue;
             }
 
             //The created_at and updated_at attributes are set to the current date
             //TODO: either add a test to keep the value if it is not empty or remove the possibility inside checkForm 
             if ($attribute->name === $this->timestampCreatedAtName || $attribute->name === $this->timestampUpdatedAtName) {
-                $this->set($attribute->name, $creation_date);
+                $attribute->create($creation_date);
             }
 
             $attributes[] = $attribute->target_column;
             $params[] = "?";
-            $values[] = $attribute->getAttributeValue(false);
+            $values[] = $attribute->getSQLValue();
             $types[] = $attribute->getSQLQueryType();
         }
 
@@ -534,20 +521,25 @@ class Model
         $this->id = $request;
         $this->setIdInProperties();
         $this->is_instantiated = true;
+
+        foreach($link_attributes as $link_attribute) {
+            $link_attribute->setId($this->id);
+        }
+
         return $this;
     }
 
-    public function update(null|array $attributes_array = null)
+    public function update(null|array $attributes_array = null): static
     {
         if ($attributes_array != null) {
-            $this->checkForm($attributes_array);
+            $this->checkForm($attributes_array, true);
         }
 
         if (!$this->is_valid) {
-            return null;
+            return $this;
         }
 
-        $update_date = new DateTime("now", new DateTimeZone($_ENV['TZ']));
+        $update_date = new DateTime("now", Config::tz());
 
         $params = [];
         $values = [];
@@ -564,22 +556,36 @@ class Model
             }
 
             if($attribute->is_link) {
-                if(!$attribute->is_inversed && !$attribute->is_link_through && $attribute->n_links === 'one') {
-                    $params[] = "$attribute->model_column = ?";
-                    $values[] = $attribute->target_id;
-                    $types[] = $attribute->model_idSQLType;
+                // For link attributes we only save links that are not linked through and inversed (the information is stored in another table)
+                if($attribute->is_inversed || $attribute->is_link_through) {
+                    continue;
                 }
+
+                // When updating we not always have loaded the target, if the id is not present in the attributes array we assume we did not want to change it
+                $target_id = $attribute->getTargetId();
+                if($target_id === null) {
+                    if(!isset($attributes_array[$attribute->target_column])) {
+                        continue;
+                    }
+                    
+                    $target_id = $attributes_array[$attribute->target_column];
+                }
+
+                // Setting the SQL query for the link attribute
+                $params[] = "$attribute->target_column = ?";
+                $values[] = $target_id;
+                $types[] = $attribute->getSQLQueryType();
                 continue;
             }
 
             //The updated_at attribute is set to the current date
             //TODO: either add a test to keep the value if it is not empty or remove the possibility inside checkForm 
             if ($attribute->name === $this->timestampUpdatedAtName) {
-                $this->set($attribute->name, $update_date);
+                $attribute->update($update_date);
             }
 
             $params[] = "$attribute->target_column = ?";
-            $values[] = $attribute->getAttributeValue(false);
+            $values[] = $attribute->getSQLValue();
             $types[] = $attribute->getSQLQueryType();
         }
 
@@ -596,31 +602,6 @@ class Model
     }
 
     /**
-     * Loads a model instance from the database based on the given ID.
-     *
-     * @param int $id The ID of the model to load.
-     * @return this The loaded model instance or nothing.
-     */
-    public static function load($id, bool $loadRelations = false): Model|null
-    {
-        if($id === null) {
-            throw new Exception('The ID of the model to load must be provided');
-        }
-
-        $model = new static();
-
-        $result = Query::from($model->table)->where($model->idKey, $id)->first();
-        
-        if (count($result) == 0) {
-            $model->id = null;
-            $model->is_instantiated = false;
-            return null;
-        }
-        
-        return $model->loadFromArray($result, $loadRelations);
-    }
-
-    /**
      * Loads the model attributes from an array.
      * Used to load the model attributes from a database query result or an array of attributes to avoid running unnecessary queries.
      * As such, it is also used by the normal load method itself.
@@ -628,7 +609,7 @@ class Model
      * @param array $attributes_array The array containing the attributes.
      * @return void
      */
-    public function loadFromArray(array $attributes_array, bool $loadRelations = false)
+    public function loadFromArray(array $attributes_array, bool $loadRelations = false): static
     {
         if (!isset($attributes_array[$this->idKey])) {
             throw new Exception("The array does not contain the model's ID attribute");
@@ -637,55 +618,116 @@ class Model
 
         foreach ($this->attributes as $attribute) {
             if(!$attribute->is_link) {
-                $this->set($attribute->name, $attributes_array[$attribute->target_column]);
+                $this->set($attribute->name, $attributes_array[$attribute->name]);
             } elseif ($loadRelations) {
-                #For inversed links the id of the linked model is stored in the same table as the model so we already have the info loaded
-                if ($attribute->is_link && $attribute->is_inversed) {
-                    $attribute->getAttributeValue(true, true, $this->id, $attributes_array[$attribute->target_idKey]);
-                } else {
-                    $attribute->getAttributeValue(true, true, $this->id, $attributes_array[$attribute->model_column]);
-                }
-            }
+                $attribute->load($this->id);
+            } 
         }
 
         $this->is_instantiated = true;
         return $this;
     }
 
-    public function checkForm(Array $attributes_array): null|self
+    public function checkForm(Array $attributes_array, bool $is_update = false): null|static
     {
+        $attributes_array = $this->checkFormCustomPre($attributes_array);
         $errors_count = 0;
 
         foreach ($this->attributes as $attribute) {
-            if($attribute->type === AttributeType::ID || $attribute->name == $this->timestampCreatedAtName || $attribute->name == $this->timestampUpdatedAtName || $attribute->name == $this->timestampDeletedAtName) {
+            # Do not process this attributes that are handled by the class and should not be updated
+            if(
+                $attribute->is_link_through 
+                || $attribute->is_inversed 
+                || $attribute->type === AttributeType::ID 
+                || $attribute->name == $this->timestampCreatedAtName 
+                || $attribute->name == $this->timestampUpdatedAtName 
+                || $attribute->name == $this->timestampDeletedAtName
+            ) {
                 continue;
             }
             
             $value = null;
+            # Retrieve the value from the attributes array
             if (isset($attributes_array[$attribute->name])) {
                 $value = $attributes_array[$attribute->name];
-            } else if (isset($attributes_array[$attribute->target_column])) {
+            } 
+            # Link attributes are provided in the attributes array with the target column name
+            else if (isset($attributes_array[$attribute->target_column])) {
                 $value = $attributes_array[$attribute->target_column];
+
+                //If we try to update a link attribute with an id, we need to fetch the object
+                if($attribute->is_link) {
+                    $value = Query::from($attribute->target_table)->where($attribute->target_id_key, $value)->first();
+                }
+            } else if($attribute->is_link) {
+                //If we have a link attribute but no value in the attributes array, we are not updating it
+                //Loading it should happen in the load method if it is needed
+                continue;
             }
 
-            $attribute->setAttributeValue($value, false);
-            $this->messages['attributes'][$attribute->name] = $attribute->messages;
+            # Applies custom processing implemented by the model subclasses
+            $value = $this->checkFormCustomLoop($value);
             
-            $this->form_data[$attribute->name] = ['value' => $value, 'messages' => $attribute->messages];
+            # The attribute model handles checking the value and parsing it
+            if($is_update) {
+                $attribute->update($value, $this->id); # On update the attribute will retrieve and keep the old value if the is required and the new value is empty
+            } else {
+                $attribute->create($value);
+            }
             
+            #Applies custom processing implemented by the model subclasses
+            $attribute = $this->checkFormCustomPost($attribute);
+            
+            # Checks on the messages send back by the attribute that there are no errors
             foreach ($attribute->messages as $message) {
                 if ($message[0] == 'error') {
                     $this->is_valid = false;
                     $errors_count++;
                 }
             }
+            $this->messages[$attribute->name] = $attribute->messages;
+
+            # Adds the parsed value to the original form data
+            $this->form_data[$attribute->name] = $value;
         }
 
+        # If the form has at least one non valid component, we do not return the model
         if ($errors_count > 0) {
             return null;
         }
 
         return $this;
+    }
+    
+    /**
+     * Aimed to be overriden by the child class to perform custom processing on the form attributes
+     * before the loop that processes each attribute.
+     *
+     * @param array $attributes_array The array of form attributes.
+     * @return array The processed array of form attributes.
+     */
+    protected function checkFormCustomPre(Array $attributes_array): Array {
+        return $attributes_array;
+    }
+    /**
+     * Aimed to be overriden by the child class to perform custom processing on each individual attribute
+     * before the default processing.
+     *
+     * @param $value The value passed in the attributes_array for the attribute.
+     * @return $value The processed value.
+     */
+    protected function checkFormCustomLoop($value) {
+        return $value;
+    }
+    /**
+     * Aimed to be overriden by the child class to perform custom processing on each individual attribute
+     * after the default processing.
+     *
+     * @param AbstractModelAttribute $attribute The form attribute to process.
+     * @return AbstractModelAttribute The processed form attribute.
+     */
+    protected function checkFormCustomPost(AbstractModelAttribute $attribute): AbstractModelAttribute {
+        return $attribute;
     }
 
     public function delete(bool $force_delete = false): bool
@@ -715,10 +757,10 @@ class Model
      * @param bool $as_object (optional) Whether to return the attribute value as an object. Default is false.
      * @return mixed|null The value of the attribute if it exists, null otherwise.
      */
-    public function get(String $attribute, bool $fetch_if_null = false, bool $as_object = false)
+    public function get(String $attribute_name, bool $as_object = false)
     {
-        if ($this->attributeExists($attribute)) {
-            return $this->attributes[$attribute]->getAttributeValue($as_object, $fetch_if_null);
+        if ($this->attributeExists($attribute_name)) {
+            return $this->attributes[$attribute_name]->get($as_object);
         }
     }
 
@@ -729,24 +771,15 @@ class Model
      * @param mixed $value The value to set for the attribute.
      * @return self|null 
      */
-    public function set(String $attribute_name, $value, bool $update_in_db = false): self|null
+    public function set(String $attribute_name, $value, bool $update_in_db = false): static
     {
-        return $this->setAttributeValue($attribute_name, $value, $update_in_db);
-    }
-
-    public function link($linked_object, bool $update_in_db = true): self|null
-    {
-        $object_class_name = get_class($linked_object);
-        if(!isset($this->objects_to_links_dict[$object_class_name])) {
-            throw new Exception("The link to the target model has not been defined");
+        if ($this->attributeExists($attribute_name)) {
+            $this->attributes[$attribute_name]->update($value, $this->id, $update_in_db);
         }
-
-        $attribute_name = $this->objects_to_links_dict[$object_class_name];
-
-        return $this->setAttributeValue($attribute_name, $linked_object, $update_in_db);
+        return $this;
     }
 
-    public function removeLink($linked_object, bool $update_in_db = true): self|null
+    public function link($linked_object, bool $update_in_db = true): static
     {
         $object_class_name = get_class($linked_object);
         if(!isset($this->objects_to_links_dict[$object_class_name])) {
@@ -754,56 +787,49 @@ class Model
         }
 
         $attribute = $this->attributes[$this->objects_to_links_dict[$object_class_name]];
-        $attribute->removeLink($linked_object, $update_in_db);
+        $attribute->add($linked_object, $update_in_db);
+
+        $errors_count = 0;
+        $this->messages[$attribute->name] = $attribute->messages;
+        foreach ($attribute->messages as $message) {
+            if ($message[0] == 'error') {
+                $this->is_valid = false;
+                $errors_count++;
+            }
+        }
+        if($errors_count > 0) {
+            $this->is_valid = false;
+        }
 
         return $this;
     }
 
-    public function removeAllLinks($attribute_name, bool $update_in_db = true): self|null
+    public function removeLink($linked_object, bool $update_in_db = true): static
     {
-        return $this->setAttributeValue($attribute_name, null, $update_in_db);
-    }
-
-    /**
-     * Instantiates (= sets a value without saving it to the db) a model attribute with the given value and optional ID.
-     *
-     * @param string $attribute The name of the attribute to instantiate.
-     * @param mixed $value The value to assign to the attribute.
-     * @param int|null $id The optional ID of the ressource.
-     * @return void
-     */
-    public function updateAttribute($attribute_name, $value)
-    {
-        return $this->setAttributeValue($attribute_name, $value, true);
-    }
-
-    protected function setAttributeValue(String $attribute_name, $value, bool $update_in_db = false): self|null {
-        if($this->attributeExists($attribute_name)) {
-            $errors_count = 0;
-            
-            $attribute = $this->attributes[$attribute_name];
-            $attribute->setAttributeValue($value, $update_in_db, $this->id);
-            
-            if ($attribute->messages !== []) {
-                $this->messages['attributes'][$attribute->name] = $attribute->messages;
-
-                foreach ($attribute->messages as $message) {
-                    if ($message[0] == 'error') {
-                        $this->is_valid = false;
-                        $errors_count++;
-                    }
-                }
-
-                if ($errors_count > 0) {
-                    return null;
-                }
-            }
-
-            return $this;
+        $object_class_name = get_class($linked_object);
+        if(!isset($this->objects_to_links_dict[$object_class_name])) {
+            throw new Exception("The link to the target model has not been defined");
         }
 
-        return null;
+        $attribute = $this->attributes[$this->objects_to_links_dict[$object_class_name]];
+        $attribute->unset($linked_object, $update_in_db);
+
+        $errors_count = 0;
+        $this->messages[$attribute->name] = $attribute->messages;
+        foreach ($attribute->messages as $message) {
+            if ($message[0] == 'error') {
+                $this->is_valid = false;
+                $errors_count++;
+            }
+        }
+        if($errors_count > 0) {
+            $this->is_valid = false;
+        }
+
+        return $this;
     }
+
+    #TODO: add loadRelations method
 
     /**
      * Sets the ID in each attribute's properties.
@@ -813,11 +839,12 @@ class Model
      *
      * @return void
      */
-    public function setIdInProperties()
+    public function setIdInProperties(): static
     {
         foreach ($this->attributes as $attribute) {
             $attribute->setId($this->id);
         }
+        return $this;
     }
 
     /**
@@ -826,11 +853,12 @@ class Model
      * @param string $attribute The name of the attribute to fetch.
      * @return void
      */
-    public function fetch($attribute)
+    public function fetch($attribute): static
     {
         if ($this->attributeExists($attribute)) {
-            $this->attributes[$attribute]->fetchAttribute();
+            $this->attributes[$attribute]->load($this->id);
         }
+        return $this;
     }
 
     /**
@@ -839,7 +867,7 @@ class Model
      * @param string $name The name of the attribute.
      * @return bool Returns true if the attribute exists, false otherwise.
      */
-    protected function attributeExists($name)
+    protected function attributeExists($name): bool
     {
         return isset($this->attributes[$name]);
     }
@@ -849,7 +877,7 @@ class Model
      *
      * @return array The attributes of the model.
      */
-    public function getAttributes()
+    public function getAttributes(): array
     {
         return $this->attributes;
     }
@@ -858,15 +886,16 @@ class Model
      * Unsets the specified attribute from the model.
      *
      * @param string $name The name of the attribute to unset.
-     * @return void
+     * @return static The updated model instance.
      */
-    protected function unsetAttribute($name)
+    protected function unsetAttribute($name): static
     {
         unset($this->attributes[$name]);
+        return $this;
     }
 
     ###############################
-    # Getters and utility methods
+    # Getters
     ###############################
     /**
      * Retrieves the name of the model.
@@ -909,6 +938,16 @@ class Model
     }
 
     /**
+     * Get the user key of the model.
+     *
+     * @return mixed The user key of the model.
+     */
+    public function getUserKey()
+    {
+        return $this->userKey;
+    }
+
+    /**
      * Get if the model was validated or not.
      *
      * @return bool Returns true if the model is valid, false otherwise.
@@ -939,6 +978,16 @@ class Model
     }
 
     /**
+     * Retrieves the form messages of the model.
+     *
+     * @return array The form messages of the model.
+     */
+    public function getFormMessages()
+    {
+        return $this->messages;
+    }
+
+    /**
      * Get the viewing privacy of the model.
      *
      * @return Privacy The viewing privacy of the model.
@@ -958,6 +1007,198 @@ class Model
         return $this->canEdit;
     }
 
+    ###############################
+    # Model querying methods
+    ###############################
+    public static function query(array $where_args = [], string $mode = 'object', bool $load_relations = false, array $order_by_args = [], ?String $distinct = null, ?int $limit = null, ?int $offset = null): array
+    {
+        if($mode == 'raw' && $load_relations) {
+            throw new Exception('Cannot load relations in raw mode: you either need to use the object or array mode.');
+        }
+
+        // Create the query
+        $ressource = new static();
+        $query = $ressource->startQuery();
+
+        // Adds the where arguments to the query
+        foreach($where_args as $key => $where_arg) {
+            // Where argument can either be passed as an array containing the signature or a WhereClause object
+            if(is_array($where_arg)) {
+                $query->where($key, ...$where_arg);
+            } else {
+                $query->where($key, $where_arg);
+            }
+        }
+        
+        foreach($order_by_args as $key => $order) {
+            $query->order($key, $order);
+        }
+        if($distinct !== null) {
+            $query->distinct($distinct);
+        }
+        $results = $query->fetch($limit, $offset);
+
+        // In raw mode simply return the SQL results
+        if($mode == 'raw') {
+            return $results;
+        }
+
+        // Otherwise, load the results into the model
+        $ressources = [];
+        foreach($results as $result) {
+            $res = new static();
+            $res->loadFromArray($result, $load_relations);
+            if($mode == 'object') {
+                $ressources[] = $res;
+            } else {
+                $ressources[] = $res->toArray();
+            }
+        }
+        return $ressources;
+    }
+
+    /**
+     * Loads a model instance from the database based on the given ID.
+     *
+     * @param $id The ID of the model to load.
+     * @param bool $loadRelations Whether to load the model's relations or not.
+     * @param string $mode The mode in which to return the model ('object', 'array', or 'raw').
+     * @return ?static The loaded model instance or nothing.
+     */
+    public static function find($id, bool $loadRelations = false, string $mode = 'object'): static|array|null
+    {
+        // Create the query
+        $ressource = new static();
+        $query = $ressource->startQuery();
+        $query->where($ressource->idKey, $id);
+        $found = $query->first();
+
+        // Exit early if the query did not return a result
+        if($found === null || count($found) == 0) {
+            return null;
+        }
+
+        // Parse the result according to the $mode argument
+        if($mode == 'raw') {
+            return $found;
+        }
+    
+        $ressource->loadFromArray($found, $loadRelations);
+        if($mode == 'array') {
+            return $ressource->toArray();
+        } 
+        return $ressource;
+    }
+
+    /**
+     * Finds a model based on the provided attributes, or creates it if it does not exist.
+     *
+     * @param array $attributes_to_find The attributes to find.
+     * @param array $attributes_to_create The attributes to create if the model does not exist.
+     * @return static The found or created model.
+     */
+    public static function findOrCreate(array $attributes_to_find, array $attributes_to_create = [], bool $load_relations_if_found = false): static {
+        $ressource = static::query($attributes_to_find, 'object', $load_relations_if_found);
+
+        if($ressource !== []) {
+            return $ressource[0];
+        }
+        
+        $object = new static();
+        if($object->getViewingPrivacy() == Privacy::PROTECTED) {
+            $attributes_to_find[$object->getUserKey()] = $_SESSION['user']['id'];
+        }
+        $object->create(array_merge($attributes_to_find, $attributes_to_create));
+        return $object;
+    }
+
+    /**
+     * Retrieve a list of records from the model.
+     *
+     * @return array The array of records.
+     */
+    public static function list($as_object = false, $limit = null, $offset = null)
+    {
+        // Create the query
+        $ressource = new static();
+        $query = $ressource->startQuery();
+        $results = $query->fetch($limit, $offset);
+        
+        // Parse the results according to the $as_object argument
+        if($as_object) {
+            $ressources = [];
+            foreach($results as $result) {
+                $ressources[] = $ressource->loadFromArray($result);
+            }
+            return $ressources;
+        }
+        return $results;
+    }
+
+    /**
+     * Counts the number of resources associated with a user.
+     *
+     * @param int $user_id The ID of the user.
+     * @return int|null The number of resources associated with the user, or null if an error occurred.
+     */
+    public static function count(array $where_args = []): int|null
+    {
+        $model = new static();
+        $query = $model->startQuery();
+
+        // If where arguments were passed, we check each one and add the adequate where clauses
+        if($where_args !== []) {
+            foreach($where_args as $key => $where_arg) {
+                // Where args can be passed either as arrays or WhereClause objects
+                if(is_array($where_arg)) {
+                    $query->where($key, ...$where_arg);
+                } else {
+                    $query->where($key, $where_arg);
+                }
+            }
+        }
+
+
+        return $query->count();
+    }
+
+    /**
+     * Initializes a secure select query for the model 
+     * Checks the user's permissions
+     * Handles softDeletion is needed
+     * 
+     * @return Query The newly initialized query
+     */
+    protected function startQuery(): Query
+    {
+        // Initializes a select query in the model's table
+        $query = Query::from($this->table);
+
+        // Checks if the model requires rights to access the ressources
+        if($this->canView->requiresLogin()) {
+            if(!isset($_SESSION['user']['id'])) {
+                Log::warning('Tried accessing a private model, '. $this->getName() . ', without being logged in.');
+                throw new Exception('Tried accessing a private ressource without being logged in.');
+            }
+            
+            // If the model is private, we only query ressources belonging to the user
+            if($this->canView->requiresAuth()) {
+                $query->where($this->userKey, $_SESSION['user']['id']);
+            }
+        }
+
+        // Makes sure we only query ressources that were not soft deleted
+        if($this->is_soft_delete) {
+            $query->where($this->timestampDeletedAtName, null);
+        }
+
+        return $query;
+    }
+
+
+    ###############################
+    # Utility classes
+    ###############################
     /**
      * Checks the user rights for a given permission type ('view' or 'edit' only) and user ID.
      *
@@ -1003,8 +1244,12 @@ class Model
     public function toArray()
     {
         $attributes = [];
-        foreach ($this->attributes as $attribute => $value) {
-            $attributes[$attribute] = $this->get($attribute);
+        foreach ($this->attributes as $attribute) {
+            $column = $attribute->target_column;
+            if($attribute->is_link && !$attribute->is_inversed) {
+                $column = $attribute->name;
+            }
+            $attributes[$column] = $attribute->get(false);
         }
         return $attributes;
     }
@@ -1069,54 +1314,6 @@ class Model
     }
 
     ###############################
-    # Model query methods
-    ###############################
-    /**
-     * Retrieve all records from the model.
-     *
-     * @return array The array of records.
-     */
-    public static function all()
-    {
-        $childModel = new static();
-
-        $query = ModelQuery::fromModel($childModel::class, $childModel->table, $childModel->idKey, $childModel->idType, $childModel->idAutoIncrement);
-        return $query->fetch();
-    }
-
-    /**
-     * Retrieves a list of user resources.
-     *
-     * @param int $user_id The ID of the user.
-     * @param bool $as_object Whether to return the resources as objects or arrays. Default is true.
-     * @return mixed The list of user resources. If $as_object is true, an array of objects is returned. Otherwise, an array of arrays is returned.
-     */
-    public static function listUserRessources($user_id, bool $as_object = true)
-    {
-        $model = new static();
-        $query = ModelQuery::fromModel($model::class, $model->table, $model->idKey, $model->idAutoIncrement, $model->idType);
-        $query->where($model->userKey, $user_id);
-        if ($as_object) {
-            return $query->fetch();
-        }
-        return $query->fetchAsArray();
-    }
-
-    /**
-     * Counts the number of resources associated with a user.
-     *
-     * @param int $user_id The ID of the user.
-     * @return int|null The number of resources associated with the user, or null if an error occurred.
-     */
-    public static function countUserRessources($user_id): int|null
-    {
-        $model = new static();
-        $count = ModelQuery::fromModel($model::class, $model->table, $model->idKey, $model->idAutoIncrement, $model->idType)->where($model->userKey, $user_id)->count();
-        return $count;
-    }
-
-
-    ###############################
     # Factory methods
     ###############################
 
@@ -1173,33 +1370,30 @@ class Model
         $db->conn->query($sql);
 
         foreach ($model->attributes as $attribute) {
-            if ($attribute->is_link_through && !$attribute->is_inversed) {
-                $result = $db->conn->query("SHOW TABLES LIKE '$attribute->link_through_table'");
+            if ($attribute->is_link_through) {
+                $result = $db->conn->query("SHOW TABLES LIKE '$attribute->relation_table'");
                 if ($result->num_rows > 0) {
-                    $db->conn->query("DROP TABLE `$attribute->link_through_table`");
-                }
+                    $db->conn->query("DROP TABLE `$attribute->relation_table`");
+                }                
 
-                $sql = "CREATE TABLE `$attribute->link_through_table` (";
+                $sql = "CREATE TABLE `$attribute->relation_table` (";
                 //Putting the id key first
-                if ($attribute->model_idType === AttributeType::ID) {
-                    $sql .= $attribute->link_through_model_column . ' INT NOT NULL, ';
+                if ($model->idType === AttributeType::ID) {
+                    $sql .= $attribute->relation_model_column . ' INT NOT NULL, ';
                 } else {
-                    $sql .= $attribute->link_through_model_column . ' CHAR(36) NOT NULL, ';
+                    $sql .= $attribute->relation_model_column . ' CHAR(36) NOT NULL, ';
                 }
 
-                if ($attribute->target_idType === AttributeType::ID) {
-                    $sql .= $attribute->link_through_target_column . ' INT NOT NULL, ';
+                if ($attribute->target_id_type === AttributeType::ID) {
+                    $sql .= $attribute->target_column . ' INT NOT NULL, ';
                 } else {
-                    $sql .= $attribute->link_through_target_column . ' CHAR(36) NOT NULL, ';
+                    $sql .= $attribute->target_column . ' CHAR(36) NOT NULL, ';
                 }
 
-                if ($attribute->link_through_model_type !== null) {
-                    $sql .= $attribute->link_through_model_type . ' CHAR(255) NOT NULL, ';
+                if ($attribute->relation_model_type !== null) {
+                    $sql .= $attribute->relation_model_type . ' char(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL, ';
                 }
 
-                if ($attribute->link_through_target_type !== null) {
-                    $sql .= $attribute->link_through_target_type . ' CHAR(255) NOT NULL, ';
-                }
                 $sql = substr($sql, 0, -2);
                 $sql .= ")";
 
@@ -1251,27 +1445,42 @@ class Model
         $columns = $db->conn->query("SHOW COLUMNS FROM `$table`");
         $columns = $columns->fetch_all();
 
-        foreach ($columns as $column) {
-            $column_name = $column[0];
-            $column_type = $column[1];
-            $column_required = $column[2] === 'NO' ? true : false;
+        foreach ($model->attributes as $attribute) {
+            if($attribute->is_link_through || $attribute->is_inversed) {
+                continue;
+            }
 
-            $columns_in_db[] = $column_name;
+            $key = $attribute->target_column;
+            if($attribute->is_link) {
+                $key = $attribute->target_column;
+            }
 
-            if (!isset($model_attributes[$column_name])) {
-                $missing_attributes[] = $column_name;
-            } else {
-                $model_field = $model_attributes[$column_name];
-                $model_field_type = $model_field['type'];
-                $model_field_required = $model_field['required'];
+            $column_name = null;
+
+            foreach ($columns as $column) {
+                if($column[0] !== $key) {
+                    continue;
+                }
+
+                $column_name = $column[0];
+                $column_type = $column[1];
+                $column_required = $column[2] === 'NO' ? true : false;
+                $columns_in_db[] = $column_name;
+
+                $model_field_type = $attribute->getSQLType();
+                $model_field_required = $attribute->is_required;
 
                 if (strtolower($model_field_type) !== strtolower($column_type)) {
                     $types_mismatch[] = $column_name . ' (' . $model_field_type . ' vs ' . $column_type . ')';
                 }
 
-                if ($model_field_required !== $column_required) {
+                if ($model_field_required !== $column_required && !$attribute->name === $model->idKey) {
                     $required_mismatch[] = $column_name;
                 }
+            }
+
+            if ($column_name === null) {
+                $model_attributes[] = $key;
             }
         }
 

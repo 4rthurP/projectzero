@@ -3,48 +3,68 @@
 namespace pz\Routing;
 
 use Exception;
+use TypeError;
+use InvalidArgumentException;
 use pz\Enums\Routing\{Privacy, Method, ResponseCode};
 use pz\Routing\Response;
+use pz\Controller;
+use pz\Log;
+class Route
+{
+    protected string $path;
 
-class Route {
-    protected String $path;
-    protected Array $methods;
+    protected array $methods;
     protected Privacy $privacy;
-    protected ?String $controller;
-    protected ?String $action_model;
-    protected ?String $function;
-    protected ?String $success_location;
-    protected ?String $error_location;
+
+    protected ?string $controller;
+    protected ?string $action_model;
+    protected ?string $function;
+
+    protected ?string $success_location;
+    protected ?string $error_location;
+
     protected Response $response;
     protected Request $request;
 
     /**
      * Constructor for the Route class.
      *
-     * @param String $path The path for the route.
+     * @param string $path The path for the route.
      * @param Method|Array $method The HTTP method(s) for the route. Defaults to Method::GET.
      * @param Privacy $privacy The privacy level of the route. Defaults to Privacy::PROTECTED.
-     * @param ?String $controller The controller class for the route. Defaults to null.
-     * @param ?String $function The function to be called in the controller. Defaults to null.
-     * @param ?String $default_success_location The default location to redirect on success. Defaults to null.
-     * @param ?String $default_error_location The default location to redirect on error. Defaults to null.
+     * @param ?string $controller The controller class for the route. Defaults to null.
+     * @param ?string $function The function to be called in the controller. Defaults to null.
+     * @param ?string $default_success_location The default location to redirect on success. Defaults to null.
+     * @param ?string $default_error_location The default location to redirect on error. Defaults to null.
      *
      * @throws Exception If a controller is defined but no function is given.
      * @throws Exception If the controller is not a subclass of pz\Controller.
      */
-    public function __construct(String $path, Method|Array $method = Method::GET, Privacy $privacy = Privacy::PROTECTED, ?String $controller = null, ?String $function = null, ?String $default_success_location = null, ?String $default_error_location = null) {        
+    public function __construct(
+        string $path,
+        Method|array $method = Method::GET,
+        Privacy $privacy = Privacy::PROTECTED,
+        ?string $controller = null,
+        ?string $function = null,
+        ?string $default_success_location = null,
+        ?string $default_error_location = null
+    ) {
         $this->path = $path;
         $this->setMethods($method);
         $this->privacy = $privacy;
 
         $this->controller = $controller;
-        
-        if($controller !== null) {
-            if($function === null) {
-                throw new Exception('Invalid action : '.$path.' - Controller defined but no method to reach was given.');
+
+        # If a controller is defined, we check a function was given and the controller is valid
+        if ($controller !== null) {
+            if ($function === null) {
+                throw new InvalidArgumentException('Invalid action : ' . $path . ' - Controller defined but no method to reach was given.');
             }
             if (!is_subclass_of($this->controller, 'pz\Controller')) {
-                throw new Exception('Invalid action : '.$path.' - The route\'s controller must be a subclass of Controller.');
+                throw new InvalidArgumentException('Invalid action : ' . $path . ' - The route\'s controller must be a subclass of Controller.');
+            }
+            if (!method_exists($this->controller, $function)) {
+                throw new InvalidArgumentException('Invalid action : ' . $path . ' - The route\'s controller (' . $this->controller . ') does not have a method named ' . $function . '.');
             }
         }
 
@@ -52,7 +72,12 @@ class Route {
         $this->function = $function;
         $this->success_location = $default_success_location;
         $this->error_location = $default_error_location;
-        $this->response = new Response(true, ResponseCode::Ok);
+
+        # The default response is an error
+        $this->response = new Response(
+            false, 
+            ResponseCode::InternalServerError
+        );
     }
 
     /**
@@ -65,17 +90,19 @@ class Route {
      * @param Request $request The incoming request to be checked.
      * @return Response The response object indicating the result of the checks.
      */
-    public function check(Request $request): Response {
+    public function check(Request $request): Response
+    {
         // Check if the request method is allowed
-        if(!$this->hasMethod($request->getMethod())) {
-            $this->response = new Response(false, ResponseCode::InvalidRequestMethod, null, 'Invalid request method '.$request->getMethod()->value, '/index.php');
-        }
-    
-        // Check if the request requires login and the user is not logged in
-        if($this->privacy->requiresLogin() && $request->user() === null) {
-            $this->response = new Response(false, ResponseCode::Unauthorized, null, 'Unauthorized : you must be logged in to access this page', '/index.php');
+        if (!$this->hasMethod($request->getMethod())) {
+            return $this->respondWithBadMethod($request->getMethod());
         }
 
+        // Check if the request requires login and the user is not logged in
+        if ($this->privacy->requiresLogin() && !$request->hasUser()) {
+            return $this->respondWithUnauthorized();
+        }
+
+        $this->response = new Response(true, ResponseCode::Ok);
         return $this->response;
     }
 
@@ -90,51 +117,284 @@ class Route {
      * If the controller's response is not an instance of Response, it wraps it in a Response object.
      * It also sets redirects based on the success or failure of the response.
      */
-    public function serve(Request $request): Response {
+    public function serve(Request $request): Response
+    {
+        // Check if the request requires login and the user is not logged in
+        if ($this->privacy->requiresLogin() && !$request->hasUser()) {
+            return $this->respondWithUnauthorized();
+        }
+        
         $this->request = $request;
-        $this->find_redirects($request);
+        $this->find_redirects();
+        
         $controller = $this->getController();
         $function = $this->getFunction();
 
-        // Call the controller's function with the request
-        $controller_response = $controller->$function($request);
-        if($controller_response instanceof Response) {
+        if ($controller != null && $function != null) {
+            // Call the controller's function with the request
+            $controller_response = $controller->$function($this->request);
+            if (!$controller_response instanceof Response) {
+                throw new Exception('Invalid response : ' . $controller_response . ' - The controller\'s function must return an instance of Response.');
+            }
             $this->response = $controller_response;
-        } else {
-            $this->response =  new Response(true, ResponseCode::Ok, $controller_response);
-        }
 
-        // Set the redirect location based on the response
-        if($this->response->isSuccessful() && !$this->response->hasRedirect() && $this->success_location != null) {
-            $this->response->setRedirect($this->success_location);
-        }
-        if(!$this->response->isSuccessful() && !$this->response->hasRedirect() && $this->error_location != null) {
-            $this->response->setRedirect($this->error_location);
+            // Set the redirect location based on the response
+            if ($this->response->isSuccessful()) {
+                if ($this->request->hasData('from')) {
+                    $this->response->setRedirect($this->request->getData('from'));
+                } else if ($this->request->hasData('redirect_to')) {
+                    $this->response->setRedirect($this->request->getData('redirect_to'));
+                } else if (!$this->response->hasRedirect() && $this->success_location != null) {
+                    $this->response->setRedirect($this->success_location);
+                }
+            }
+            if (!$this->response->isSuccessful() && !$this->response->hasRedirect() && $this->error_location != null) {
+                $this->response->setRedirect($this->error_location);
+            }
+
+            if ($this->privacy->requiresLogin() && $this->request->isAuthenticated()) {
+                $this->response->setNonce($this->request->nonce(), $this->request->nonceExpiration());
+            }
         }
 
         return $this->response;
     }
 
+
+    ##############################
+    # Various getters and Setters
+    ##############################
+    /**
+     * Sets the privacy settings for the route.
+     *
+     * @param Privacy $privacy An instance of the Privacy class representing the privacy settings.
+     * @return void
+     */
+    public function setPrivacy(Privacy $privacy)
+    {
+        $this->privacy = $privacy;
+    }
+
+    /**
+     * Retrieves the privacy settings associated with the current route.
+     *
+     * @return Privacy The privacy settings of the route.
+     */
+    public function getPrivacy(): Privacy
+    {
+        return $this->privacy;
+    }
+
+    /**
+     * Sets the HTTP methods for the route.
+     *
+     * @param Method|Method[] $method The HTTP method(s) to set. Can be a single Method instance or an array of Method instances.
+     * 
+     * @throws TypeError If any element in the provided array is not an instance of the Method class.
+     */
+    public function setMethods(Method|array $method)
+    {
+        if ($method instanceof Method) {
+            $method = [$method];
+        } 
+
+        foreach ($method as $m) {
+            if(!($m instanceof Method)) {
+                throw new TypeError('Invalid method : ' . $m . ' - The method must be an instance of Method.');
+            }
+        }
+
+        $this->methods = $method;
+    }
+
+    /**
+     * Adds a new HTTP method to the route if it does not already exist.
+     *
+     * @param Method $method The HTTP method to add.
+     * @return void
+     */
+    public function addMethod(Method $method)
+    {
+        if ($this->hasMethod($method)) {
+            return;
+        }
+        $this->methods[] = $method;
+    }
+
+    /**
+     * Retrieves the HTTP methods associated with the route.
+     *
+     * @return array An array of HTTP methods (e.g., GET, POST, etc.) supported by the route.
+     */
+    public function getMethods()
+    {
+        return $this->methods;
+    }
+
+    /**
+     * Checks if the given HTTP method is supported by the route.
+     *
+     * @param Method $method The HTTP method to check.
+     * @return bool True if the method is supported, false otherwise.
+     */
+    public function hasMethod(Method $method): bool
+    {
+        return in_array($method, $this->methods);
+    }
+
+    /**
+     * Sets the path for the route.
+     *
+     * @param string $path The path to be set for the route.
+     * @return void
+     */
+    public function setPath(string $path)
+    {
+        $this->path = $path;
+    }
+
+    /**
+     * Retrieves the path associated with the current route.
+     *
+     * @return string The path of the route.
+     */
+    public function getPath()
+    {
+        return $this->path;
+    }
+
+    /**
+     * Retrieves the controller instance associated with the route.
+     *
+     * If the controller property is null, this method returns null.
+     * Otherwise, it creates a new instance of the controller class.
+     * If an action model is set, it assigns the model to the controller
+     * using the `setModel` method.
+     *
+     * @return Controller|null Returns the controller instance or null if no controller is set.
+     */
+    public function getController(): ?Controller
+    {
+        if ($this->controller === null) {
+            return null;
+        }
+
+        $controller = new $this->controller;
+        if ($this->action_model !== null) {
+            $controller->setModel($this->action_model);
+        }
+
+        return $controller;
+    }
+
+    /**
+     * Sets the model to be used by the route's controller.
+     *
+     * @param mixed $model The model for the controller.
+     * @return void
+     */
+    public function setModel($model)
+    {
+        $this->action_model = $model;
+    }
+
+    /**
+     * Retrieves the function associated with the route.
+     *
+     * @return callable The function associated with the route.
+     */
+    public function getFunction()
+    {
+        return $this->function;
+    }
+
+    /**
+     * Retrieves the response associated with the current route.
+     *
+     * @return mixed The response object or data.
+     */
+    public function getResponse()
+    {
+        return $this->response;
+    }
+
+    /**
+     * Retrieves the current request instance.
+     *
+     * @return \Request The current request object.
+     */
+    public function getRequest()
+    {
+        return $this->request;
+    }
+
+
     ##############################
     # Helpers and Utilities
     ##############################
     /**
-     * Finds and sets the redirect locations based on the given request.
+     * Finds and sets the redirect locations based on the current request.
      *
      * This method checks the request for success and error locations. If found, it sets the corresponding properties of the class.
-     *
-     * @param Request $request The request object containing potential redirect locations.
      */
-    protected function find_redirects(Request $request) {
-        $success_location = $request->successLocation();
-        $error_location = $request->errorLocation();
+    protected function find_redirects()
+    {
+        $success_location = $this->request->successLocation();
+        $error_location = $this->request->errorLocation();
 
-        if($success_location !== null) {
+        if ($success_location !== null) {
             $this->success_location = $success_location;
         }
-        if($error_location !== null) {
+        if ($error_location !== null) {
             $this->error_location = $error_location;
         }
+    }
+
+    /**
+     * Responds with an unauthorized response.
+     *
+     * This method creates a response object indicating that the user is not authorized
+     * to access the requested resource. It sets the response status to `Unauthorized`
+     * and provides a message explaining the reason. Additionally, it redirects the user
+     * to the login page or an error page with an appropriate error message.
+     *
+     * @return Response The unauthorized response object with a redirect set.
+     */
+    protected function respondWithUnauthorized()
+    {
+        Log::error('Route : ' . $this->path . ' - User is not logged in');
+        $this->response = new Response(
+            false, 
+            ResponseCode::Unauthorized, 
+            'Unauthorized : you must be logged in to access this ressource',
+            '/index.php?error=invalid-login'
+        );
+
+        return $this->response;
+    }
+
+    /**
+     * Responds with a method not allowed response.
+     *
+     * This method creates a response object indicating that the request method is not allowed
+     * for the requested resource. It sets the response status to `MethodNotAllowed` and provides
+     * a message explaining the reason.
+     *
+     * @return Response The method not allowed response object.
+     */
+    protected function respondWithBadMethod($method)
+    {
+        $this->response = new Response(
+            false, 
+            ResponseCode::MethodNotAllowed, 
+            'Invalid request method ' . $method->value . ' : This ressource only accepts ' . implode(
+                ',',
+                array_map(fn($m) => $m->value, $this->methods)
+            ) . '.',
+            '/index.php?error=invalid-request-method'
+        );
+
+        return $this->response;
     }
 
     /**
@@ -147,7 +407,8 @@ class Route {
      *      - 'controller' (string|null): The controller associated with the route, if any.
      *      - 'function' (string|null): The function to be called in the controller, if any.
      */
-    public function toArray() {
+    public function toArray()
+    {
         $data = [
             'url' => $this->path,
             'method' => $this->methods,
@@ -155,83 +416,12 @@ class Route {
             // 'default_success_location' => $this->default_success_location,
             // 'default_error_location' => $this->default_error_location
         ];
-        if($this->controller !== null) {
+        if ($this->controller !== null) {
             $data['controller'] = $this->controller;
             $data['function'] = $this->function;
         }
 
         return $data;
-    }    
-
-    ##############################
-    # Getters and Setters
-    ##############################
-    public function setPrivacy(Privacy $privacy) {
-        $this->privacy = $privacy;
     }
 
-    public function getPrivacy() {
-        return $this->privacy;
-    }
-    
-    public function setMethods(Method|Array $method) {
-        if(is_array($method)) {
-            foreach($method as $m) {
-                if(!($m instanceof Method)) {
-                    throw new Exception('Invalid method : '.$m.' - The method must be an instance of Method.');
-                }
-            }
-            $this->methods = $method;
-        } else {
-            $this->methods = [$method];
-        }
-    }
-
-    public function addMethod(Method $method) {
-        if($this->hasMethod($method)) {
-            return;
-        }
-        $this->methods[] = $method;
-    }
-
-    public function getMethods() {
-        return $this->methods;
-    }
-
-    public function hasMethod(Method $method): bool {
-        return in_array($method, $this->methods);
-    }
-
-    public function setPath(String $path) {
-        $this->path = $path;
-    }
-
-    public function getPath() {
-        return $this->path;
-    }
-
-    public function getController() {
-        $controller = new $this->controller;
-        if($this->action_model !== null) {
-            $controller->setModel($this->action_model);
-        }
-
-        return $controller;
-    }
-
-    public function setModel($model) {
-        $this->action_model = $model;
-    }
-
-    public function getFunction() {
-        return $this->function;
-    }
-
-    public function getResponse() {
-        return $this->response;
-    }
-
-    public function getRequest() {
-        return $this->request;
-    }
 }

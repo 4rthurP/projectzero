@@ -23,7 +23,7 @@ enum AttributeType: string {
             AttributeType::ID => 'i',
             AttributeType::UUID => 's',
             AttributeType::EMAIL => 's',
-            AttributeType::RELATION => null,
+            AttributeType::RELATION => 's',
             AttributeType::CHAR => 's',
             AttributeType::TEXT => 's',
             AttributeType::LIST => 's',
@@ -32,6 +32,7 @@ enum AttributeType: string {
             AttributeType::FLOAT => 'd',
             AttributeType::DATE => 's',
             AttributeType::DATETIME => 's',
+            default => 's',
         };
     }
 
