@@ -122,7 +122,7 @@ class Application extends ApplicationBase {
                 $response = new Response(false, ResponseCode::InternalServerError, $e->getMessage(), '/');
             }
         }
-
+        
         // When auto render is enabled we take care of redirections and view rendering
         $auto_render = $auto_render ?? $this->auto_render;
         if($auto_render == true) {
@@ -136,6 +136,18 @@ class Application extends ApplicationBase {
             if($this->current_view != null && isset($this->view_serving) && isset($this->view_routing)) {
                 if($this->view_routing->isSuccessful() && $this->view_serving->isSuccessful()) {
                     $this->render();
+                } else {
+                    if(Config::env() == 'DEV') {
+                        if(!$this->view_routing->isSuccessful()) {
+                            throw new Exception('Failed routing the view: ' . $this->view_routing->getAnswer());
+                        } else {
+                            throw new Exception('Failed serving the view: ' . $this->view_serving->getAnswer());
+                        }
+                    } else {
+                        // If we are here it means the response could not find a default error location
+                        header('Location: /');
+                        exit();
+                    }
                 }
             }
         }
