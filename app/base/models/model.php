@@ -579,7 +579,6 @@ class Model
             }
 
             //The updated_at attribute is set to the current date
-            //TODO: either add a test to keep the value if it is not empty or remove the possibility inside checkForm 
             if ($attribute->name === $this->timestampUpdatedAtName) {
                 $attribute->update($update_date);
             }
@@ -659,9 +658,9 @@ class Model
                 if($attribute->is_link) {
                     $value = Query::from($attribute->target_table)->where($attribute->target_id_key, $value)->first();
                 }
-            } else if($attribute->is_link) {
-                //If we have a link attribute but no value in the attributes array, we are not updating it
-                //Loading it should happen in the load method if it is needed
+            } else if ($is_update) {
+                // If no value is provided in the attributes array, we are not updating it
+                // Loading it should happen in the load method if it is needed
                 continue;
             }
 
