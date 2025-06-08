@@ -67,7 +67,7 @@ class ApplicationModule extends ApplicationBase {
         $folder = $folder ?? $page;
         if(substr($folder, -1) === "/")
             $folder = substr($folder, -1);
-        # TODO: add support for more folders locations, not only app/modules
+        # TODO: add support for more folders locations, not only modules
         $page_folder = Config::modules_path() . $this->path_prefix . $folder;
 
         # Find the template

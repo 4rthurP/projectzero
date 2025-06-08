@@ -321,6 +321,6 @@ class Database
             $text .= 'Called from: ' . $trace['file'] . ' on line ' . $trace['line'] . PHP_EOL;
         }
         $text .= '----------------------------------------' . PHP_EOL;
-        file_put_contents($_ENV['APP_PATH'] . '/app/database/queries.log', $text, FILE_APPEND);
+        file_put_contents($_ENV['APP_PATH'] . '/database/queries.log', $text, FILE_APPEND);
     }
 }

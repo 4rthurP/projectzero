@@ -133,7 +133,7 @@ Every part of your project should be defined in a submodule of the application.
 You can then add pages (using the `page()` method), views (`view()`), actions (`action()`) and API endpoints (`api()` or `public_api()`) to the module.
 ```php
 <?php
-require_once 'app/dependencies.php';
+require_once 'dependencies.php';
 
 use pz\Application;
 
@@ -155,17 +155,17 @@ $application->run();
 We recommand putting all the php files in the `pages/submodule_name/` folder (ie. `pages/cars/index.php`).
 
 ## In depth documentation
-There is no proper documentation of the framework yet, but you can look at the source code of the framework to understand how it works (it lives in the `app/base/` folder).
+There is no proper documentation of the framework yet, but you can look at the source code of the framework to understand how it works (it lives in the `base/` folder).
 Some interesting functionnalities you may like but are not documented yet:
-- Databse and queries: projectzero comes with a custom database abstraction layer and a Query builder. Look into `app/base/database/Database.php` and `app/base/database/Query.php`
-- Models offer various attributes and options to customize their behavior, especially linked attributes to other models. Look into `app/base/model/model.php`, `app/base/model/model_attribute.php`, `app/base/model/model_attribute_link.php` and `app/base/model/model_attribute_linkthrough.php`
-- Config: env variables are loaded and can be accessed through an easy to use interface. Look into `app/base/utils/config.php`
-- Logging: projectzero uses the `Monolog` library to log messages. Look into `app/base/utils/logging.php`
-- Scheduler: projeczero comes with a build-in scheduler that can be used to run tasks at a specific time or interval. Look into `app/base/utils/scheduler.php`
+- Databse and queries: projectzero comes with a custom database abstraction layer and a Query builder. Look into `base/database/Database.php` and `base/database/Query.php`
+- Models offer various attributes and options to customize their behavior, especially linked attributes to other models. Look into `base/model/model.php`, `base/model/model_attribute.php`, `base/model/model_attribute_link.php` and `base/model/model_attribute_linkthrough.php`
+- Config: env variables are loaded and can be accessed through an easy to use interface. Look into `base/utils/config.php`
+- Logging: projectzero uses the `Monolog` library to log messages. Look into `base/utils/logging.php`
+- Scheduler: projeczero comes with a build-in scheduler that can be used to run tasks at a specific time or interval. Look into `base/utils/scheduler.php`
 - Testing: projectzero bundles the `PHPUnit` library to run tests. 
 
 ## Run test
 If you are me (weird again), you can run the tests to make sure everything is working as expected using
 ```
-./vendor/bin/phpunit app/tests
+./vendor/bin/phpunit tests
 ```

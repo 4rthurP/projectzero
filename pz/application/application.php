@@ -424,7 +424,7 @@ class Application extends ApplicationBase {
      * @return void
      */
     protected function checkSetup() {
-        if (!file_exists(Config::app_path() . 'app/initialized.lock') && $_SERVER['SCRIPT_NAME'] != '/install.php') {
+        if (!file_exists(Config::app_path() . 'initialized.lock') && $_SERVER['SCRIPT_NAME'] != '/install.php') {
             $_SESSION['user'] = null;
             header('Location: /install.php');
             exit();

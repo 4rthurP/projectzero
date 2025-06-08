@@ -190,7 +190,7 @@ final class databaseTest extends TestCase
 
     protected function setUp(): void
     {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../../.env');
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../.env');
         $dotenv->load();
         $this->db = new Database($_ENV['TEST_DB_NAME']);
     }

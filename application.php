@@ -1,5 +1,5 @@
 <?php
-require_once 'app/dependencies.php';
+require_once 'dependencies.php';
 
 use pz\Application;
 

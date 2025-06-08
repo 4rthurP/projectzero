@@ -15,7 +15,7 @@ class Config {
         'ENV' => 'PROD',
         'APP_PATH' => __DIR__ . '/../',
         'MODULES_PATH' => 'modules/',
-        'LATTE_PATH' => 'app/latte/',
+        'LATTE_PATH' => 'latte/',
         'TZ' => 'UTC',
         'LOG_LEVEL' => 'INFO',
         'DB_HOST' => null,
@@ -34,7 +34,7 @@ class Config {
     ];
 
     private function __construct() {
-        $dotenv = Dotenv::createImmutable(__DIR__, '../../../.env');
+        $dotenv = Dotenv::createImmutable(__DIR__, '../../.env');
         $dotenv->load();
         $this->config = $_ENV;
     }
@@ -118,7 +118,7 @@ class Config {
     }
 
     public static function latte_path(): string {
-        $latte_path = self::get('LATTE_PATH', 'app/latte/');
+        $latte_path = self::get('LATTE_PATH', 'latte/');
 
         // Ensure the path ends with a slash
         if (substr($latte_path, -1) !== '/') {

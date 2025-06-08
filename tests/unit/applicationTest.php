@@ -24,31 +24,31 @@ final class ApplicationTest extends TestCase
     {
         // 'page', 'controller', 'method', 'folder', 'uri', 'template', 'privacy'
         return [
-            ['index', DummyController::class, null, '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, 'good_method', '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, 'bad_method', '../app/tests/unit/test_ressources', 'index.php', 'index.latte'],
-            ['index', null, [[DummyController::class, 'good_method']], '../app/tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
-            ['index', null, [[DummyController::class, 'good_method'], [DummyController::class, 'bad_method']], '../app/tests/unit/test_ressources', 'index.php', 'index.latte', Privacy::PUBLIC],
-            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [DummyController::class, 'bad_method']], '../app/tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
-            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [[DummyController::class, 'bad_method'], [DummyController::class, 'good_method']]], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ["GET" => ['good_method'], "POST" => ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', 'bad_method'], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', 'bad_method', 'good_method'], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, [['good_method'], ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
+            ['index', DummyController::class, null, '../tests/unit/test_ressources'],
+            ['index', DummyController::class, 'good_method', '../tests/unit/test_ressources'],
+            ['index', DummyController::class, 'bad_method', '../tests/unit/test_ressources', 'index.php', 'index.latte'],
+            ['index', null, [[DummyController::class, 'good_method']], '../tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
+            ['index', null, [[DummyController::class, 'good_method'], [DummyController::class, 'bad_method']], '../tests/unit/test_ressources', 'index.php', 'index.latte', Privacy::PUBLIC],
+            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [DummyController::class, 'bad_method']], '../tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
+            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [[DummyController::class, 'bad_method'], [DummyController::class, 'good_method']]], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ["GET" => ['good_method'], "POST" => ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', 'bad_method'], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', 'bad_method', 'good_method'], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, [['good_method'], ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
         ];
     }
     
     public static function validPagesWithActionProvider(): array {
         // 'page', 'controller', 'method', 'folder', 'uri', 'template', 'privacy'
         return [
-            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [DummyController::class, 'bad_method']], '../app/tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
-            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [[DummyController::class, 'bad_method'], [DummyController::class, 'good_method']]], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ["GET" => ['good_method'], "POST" => ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', 'bad_method'], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, ['good_method', 'bad_method', 'good_method'], '../app/tests/unit/test_ressources'],
-            ['index', DummyController::class, [['good_method'], ['bad_method', 'good_method']], '../app/tests/unit/test_ressources'],
+            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [DummyController::class, 'bad_method']], '../tests/unit/test_ressources', null, 'index.latte', Privacy::PUBLIC],
+            ['index', null, ["GET" => [DummyController::class, 'good_method'], "POST" => [[DummyController::class, 'bad_method'], [DummyController::class, 'good_method']]], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ["GET" => ['good_method'], "POST" => ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', 'bad_method'], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, ['good_method', 'bad_method', 'good_method'], '../tests/unit/test_ressources'],
+            ['index', DummyController::class, [['good_method'], ['bad_method', 'good_method']], '../tests/unit/test_ressources'],
         ];
 
     }
@@ -79,7 +79,7 @@ final class ApplicationTest extends TestCase
         $default_module = $this->application->module('default', Privacy::PUBLIC);
 
         // Minimal page signature
-        $default_module->page('index', DummyController::class, folder: '../app/tests/unit/test_ressources');
+        $default_module->page('index', DummyController::class, folder: '../tests/unit/test_ressources');
 
         $app_actions = $default_module->getActions();
         $app_views = $default_module->getViews();
@@ -295,7 +295,7 @@ final class ApplicationTest extends TestCase
 
         // Attempt to add a page with an unknown template
         $this->expectException(\Exception::class);
-        $default_module->page('unknown_page', template: 'unknown_template.latte', folder: '../app/tests/unit/test_ressources');
+        $default_module->page('unknown_page', template: 'unknown_template.latte', folder: '../tests/unit/test_ressources');
     }
     
     protected function setUp(): void

@@ -144,7 +144,7 @@ final class authTest extends TestCase
 
     protected function setUp(): void
     {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../../.env');
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../.env');
         $dotenv->load();
         // Force the environment to use the test database since we cannot otherwise choose which database is used by models
         $_ENV['DB_NAME'] = "pz_test";

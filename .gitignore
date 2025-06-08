@@ -6,13 +6,13 @@ modules/*
 pages/*
 static/*
 
-app/crontab
-app/initialized.lock
+crontab
+initialized.lock
 
-app/latte/*
-app/logs/*
+latte/*
+logs/*
 
-app/database/structure.sql
-app/database/queries.log
-app/database/backups/*
-!app/database/backups/.gitkeep
+database/structure.sql
+database/queries.log
+database/backups/*
+!database/backups/.gitkeep

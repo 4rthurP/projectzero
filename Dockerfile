@@ -28,7 +28,7 @@ RUN groupadd -g ${GROUP_ID} pz-user && \
 # Set permissions
 RUN if [ ! -z "$SCHEDULE_TOKEN" ]; then \
     echo "Running scheduler install"; \
-    echo "${CRON_SCHEDULE} pz-user CRON_TOKEN=${SCHEDULE_TOKEN} $(which php) /var/www/${PZ_FOLDER}/app/schedule.php >> /var/log/cron.log 2>&1" > /etc/cron.d/pz-cron \
+    echo "${CRON_SCHEDULE} pz-user CRON_TOKEN=${SCHEDULE_TOKEN} $(which php) /var/www/${PZ_FOLDER}/schedule.php >> /var/log/cron.log 2>&1" > /etc/cron.d/pz-cron \
     && touch /var/log/cron.log \
     && chmod 666 /var/log/cron.log; \
 else \
