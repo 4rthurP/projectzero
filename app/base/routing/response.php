@@ -264,7 +264,11 @@ class Response
         $request = $this->redirect ?? '';
 
         if (!$this->success) {
-            $request = $this->addParamToRequest($request, 'error', $this->code->toParam());
+            $request = $this->addParamToRequest(
+                $request, 
+                'error', 
+                $this->answer != '' ? $this->answer : $this->code->toParam(),
+            );
         } else {
             $request = $this->addParamToRequest($request, 'success', 'true');
         }

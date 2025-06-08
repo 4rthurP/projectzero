@@ -87,7 +87,7 @@ class Auth {
         } 
         
         // Checking password
-        if(!isset($this->request_data['password'])) {
+        if(!isset($this->request_data['password']) || $this->request_data['password'] == '') {
             return $this->failedLoginAttempt('Password is missing', 'missing-password', false);
         }
         if(!password_verify($this->request_data['password'], $this->user->get('password'))) {
@@ -293,7 +293,7 @@ class Auth {
             ->count();
 
         if($attempts >= $ban_threshold) {
-            $this->failedLoginAttempt('You made too many login attemps, comme back latter.');
+            $this->failedLoginAttempt('You made too many login attemps, comme back latter.', 'unauthorized-login');
             return true;
         }
         
@@ -320,7 +320,7 @@ class Auth {
             ->count();
 
         if($attempts > 0) {
-            $this->failedLoginAttempt('You made a login attempt too recently.');
+            $this->failedLoginAttempt('You made a login attempt too recently.', 'unauthorized-login');
             return true;
         }
 

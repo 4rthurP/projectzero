@@ -204,7 +204,7 @@ class Application extends ApplicationBase {
                     $this->page_response = $this->action_serving;
     
                     // If the action response is not successful,or has a redirection we return it
-                    if($this->page_response->hasRedirect() || !$this->page_response->isSuccessful()) {
+                    if($this->page_response->hasRedirect()) {
                         return $this->page_response;
                     }
                     
