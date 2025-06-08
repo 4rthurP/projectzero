@@ -63,7 +63,7 @@ class ModelAttributeLink extends AbstractModelAttribute
     }
 
     protected function getAttributeValue() {
-        if($this->target == null) {
+        if($this->target == null || $this->value == null) {
             return $this->value;
         }
         if(!$this->is_inversed) {
@@ -111,13 +111,14 @@ class ModelAttributeLink extends AbstractModelAttribute
 
             if(!$this->is_required && $attribute_value == null) {
                 $messages[] = ['info', 'attribute-missing-not-required', "No value was provided for ".$this->name];
+                $this->value = null;
+                return $this;
             }
 
             ##### Value parsing and setting 
             try {
                 $this->value = $this->parseValue($attribute_value);
             } catch (Throwable $e) {
-                var_dump($attribute_value);
                 throw new Exception("Attribute value must be an object of type " . $this->target);
                 $this->messages[] = ['error', 'attribute-type', $e->getMessage()];
                 $this->is_valid = false;
