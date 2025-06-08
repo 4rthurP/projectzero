@@ -111,6 +111,8 @@ class User extends Model {
         }
 
         parent::checkForm($attributes_array, $is_update);
+
+        unset($this->form_data['password']);
         
         if($this->is_valid) {
             return $this;

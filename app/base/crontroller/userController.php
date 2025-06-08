@@ -3,6 +3,7 @@
 namespace pz\Controllers;
 
 use Exception;
+
 use pz\Auth;
 use pz\ModelController;
 use pz\Models\User;
@@ -42,19 +43,10 @@ class UserController extends ModelController
             return new Response(true, ResponseCode::Ok,'logged-in', 'index.php');
         }
         
-        if($auth->getError() == 'login-failed') {
-            return new Response(
-                false,
-                ResponseCode::Unauthorized,
-                $auth->getErrorMessage(),
-                'index.php',
-            );
-        }
-
         return new Response(
             false,
-            ResponseCode::BadRequestContent,
-            $auth->getErrorMessage()
+            ResponseCode::Unauthorized,
+            $auth->getError(),
         );
     }
 
