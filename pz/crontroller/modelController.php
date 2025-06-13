@@ -237,8 +237,11 @@ class ModelController extends Controller {
         if($ressource_id == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
+
+        $load_relations = $request->getData('load_relations') ?? false;
+        $load_relations = $load_relations === 'true' || $load_relations === true;
         
-        $model = $this->model::find($ressource_id);
+        $model = $this->model::find($ressource_id, $load_relations);
         if($model == null || !$model->isModelInstantiated()) {
             return new Response(false, ResponseCode::NotFound, 'ressource-not-found');
         }

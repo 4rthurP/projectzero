@@ -16,7 +16,47 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
     public bool $is_link = true;
     public bool $is_link_through = true;
 
-    public function __construct(String $name, String $model, String $bundle = 'default', bool $isInversed = false, bool $is_many = true, ?String $default_value = null, ?String $model_table = null, ?String $model_id_key = null, ?String $target_column = null, ?String $target = null, ?String $target_table = null, ?String $target_id_key = null, ?String $relation_table = null, ?String $relation_model_column = null, ?String $relation_model_type = null) {
+    /**
+     * Creates a new ModelAttributeLinkThrough instance for many-to-many relationships.
+     *
+     * This constructor sets up a link-through relationship that uses an intermediate table
+     * to connect two models. It supports both polymorphic and regular many-to-many relationships.
+     *
+     * @param string $name The name of the attribute
+     * @param string $model The source model class name
+     * @param string $bundle The bundle name for organizing attributes (default: 'default')
+     * @param bool $isInversed Whether this is the inverse side of the relationship (default: false)
+     * @param bool $is_many Whether this is a many-to-many relationship (default: true)
+     * @param string|null $default_value Default value (currently not supported for link attributes)
+     * @param string|null $model_table Database table name for the source model
+     * @param string|null $model_id_key Primary key column name in the source model table
+     * @param string|null $target_column Column name in the relation table that references the target
+     * @param string|null $target Target model class name for the relationship
+     * @param string|null $target_table Database table name for the target model (required if target is null)
+     * @param string|null $target_id_key Primary key column name in the target model table
+     * @param string|null $relation_table Name of the intermediate/junction table
+     * @param string|null $relation_model_column Column name in the relation table that references the source model
+     * @param string|null $relation_model_type Column name for polymorphic type (for polymorphic relationships)
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If neither target nor target_table is provided
+     */
+    public function __construct(
+        String $name, 
+        String $model, 
+        String $bundle = 'default', 
+        bool $isInversed = false, 
+        bool $is_many = true, 
+        ?String $default_value = null, 
+        ?String $model_table = null, 
+        ?String $model_id_key = null, 
+        ?String $target_column = null, 
+        ?String $target = null, 
+        ?String $target_table = null, 
+        ?String $target_id_key = null, 
+        ?String $relation_table = null, 
+        ?String $relation_model_column = null, 
+        ?String $relation_model_type = null
+    ) {
         $this->name = $name;
         $this->type = AttributeType::RELATION;
         $this->is_required = false;
@@ -39,7 +79,7 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         }
 
         if($target != null) {
-            $target_model = new $target();
+            $target_model = new $target(false);
             $this->target = $target;
             $this->target_table = $target_model->table;
             $this->target_id_key = $target_model->getIdKey();
@@ -69,6 +109,15 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         return $this;
     }
 
+    /**
+     * Retrieves the formatted attribute value for link-through relationships.
+     *
+     * Returns the relationship data in a format suitable for external use:
+     * - If target model is defined: Returns array of model objects converted to arrays
+     * - If no target model: Returns raw relationship data
+     *
+     * @return array The formatted relationship data
+     */
     protected function getAttributeValue() {
         if($this->target == null) {
             return $this->value;
@@ -81,6 +130,24 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         return $parsed_value;
     }
 
+    /**
+     * Sets and validates the attribute value for link-through relationships.
+     *
+     * Processes relationship data which can be:
+     * - A single object or array
+     * - An array of objects or arrays
+     * - null or empty array (clears the relationship)
+     *
+     * Each value is parsed and validated, then stored with its ID as the key.
+     *
+     * @param mixed $attribute_value The relationship data to set (object, array, or null)
+     * @param bool $is_creation Whether this is a creation operation (default: false)
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If the attribute value format is invalid
+     * @throws Throwable If an error occurs during value parsing
+     *
+     * @see parseValue() for individual value parsing logic
+     */
     protected function setAttributeValue($attribute_value, bool $is_creation = false): static {
         $this->value = [];
         if($attribute_value === null || $attribute_value === []) {
@@ -117,6 +184,22 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         }
         return $this;
     }
+    /**
+     * Updates the link-through relationship data in the database.
+     *
+     * Synchronizes the relationship by:
+     * 1. Finding existing relationships in the junction table
+     * 2. Adding new relationships that don't exist
+     * 3. Removing relationships that are no longer present
+     *
+     * Supports both regular and polymorphic relationships based on configuration.
+     *
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If the object ID is not set
+     *
+     * @see findRelations() for finding existing relationships
+     * @see Database::execute() for database operations
+     */
     protected function updateAttributeValue(): static {
         if($this->object_id === null) {
             throw new Exception("Object ID not set");
@@ -151,6 +234,19 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         return $this;
     }
 
+    /**
+     * Fetches the link-through relationship data from the database.
+     *
+     * Retrieves related records by:
+     * 1. Finding relationship records in the junction table
+     * 2. Extracting target IDs from the relationships
+     * 3. Fetching the actual target records using those IDs
+     *
+     * @return array|null Array of related records or null if no relationships exist
+     *
+     * @see findRelations() for finding junction table records
+     * @see Query::from() for building the target data query
+     */
     protected function fetchAttributeValue() {
         $found_relations = $this->findRelations();
         if(count($found_relations) == 0) {
@@ -168,6 +264,16 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         return $found_values;
     }
 
+    /**
+     * Finds existing relationship records in the junction table.
+     *
+     * Queries the intermediate table to find all relationships for the current object.
+     * Handles both polymorphic and regular relationships based on configuration.
+     *
+     * @return array Array of relationship records from the junction table
+     *
+     * @see Query::from() for building the database query
+     */
     protected function findRelations() {
         $relation_query = Query::from($this->relation_table)->get($this->target_column)->where($this->relation_model_column, $this->object_id);
         if($this->relation_model_type != null) {
@@ -176,12 +282,28 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         return $relation_query->fetch();
     }
 
+    /**
+     * Parses and validates a single relationship value.
+     *
+     * Handles different input formats:
+     * - If target model is defined:
+     *   - Accepts instances of the target model class
+     *   - Accepts arrays with target ID key, converts to model instance
+     * - If no target model:
+     *   - Accepts arrays with the required ID key
+     *
+     * @param mixed $value The value to parse (object or array)
+     * @return mixed The parsed relationship value (model instance or array)
+     * @throws Exception If the value format is invalid or missing required keys
+     *
+     * @see loadFromArray() for creating model instances from array data
+     */
     protected function parseValue($value) {
         if($this->target != null) {
             if(is_a($value, $this->target)) {
                 return $value;
             } elseif(is_array($value) && array_key_exists($this->target_id_key, $value)) {
-                $target = new $this->target();
+                $target = new $this->target(false);
                 $target->loadFromArray($value);
                 if($target->isValid()) {
                     return $target;

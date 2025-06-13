@@ -17,7 +17,22 @@ class ModelAttribute extends AbstractModelAttribute
     public bool $is_link = false;
     public bool $is_link_through = false;
 
-    public function __construct(String $name, AttributeType $type, String $model, String $bundle = 'default', bool $isRequired = false, ?String $default_value = null, ?String $model_table = null, ?String $model_id_key = null, ?String $target_column = null) {
+    /**
+     * Creates a new ModelAttribute instance.
+     *
+     * @param string $name The name of the attribute
+     * @param AttributeType $type The type of the attribute (e.g., CHAR, INT, DATE, etc.)
+     * @param string $model The model class name this attribute belongs to
+     * @param string $bundle The bundle name for organizing attributes (default: 'default')
+     * @param bool $isRequired Whether this attribute is required (default: false)
+     * @param string|null $default_value Default value for the attribute when not provided
+     * @param string|null $model_table Database table name for this model
+     * @param string|null $model_id_key Primary key column name in the database table
+     * @param string|null $target_column Database column name for this attribute (defaults to attribute name)
+     * @param string|null $updated_at_column Column name for tracking update timestamps
+     * @return static Returns the current instance for method chaining
+     */
+    public function __construct(String $name, AttributeType $type, String $model, String $bundle = 'default', bool $isRequired = false, ?String $default_value = null, ?String $model_table = null, ?String $model_id_key = null, ?String $target_column = null, ?String $updated_at_column = null) {
         $this->name = $name;
         $this->type = $type;
         $this->is_required = $isRequired;
@@ -25,9 +40,10 @@ class ModelAttribute extends AbstractModelAttribute
         $this->default_value = $default_value;
         $this->model = $model;
         $this->bundle = $bundle;
-        $this->model_table = $model_table ?? $this->makeRelationTableName();
+        $this->model_table = $model_table;
         $this->model_id_key = $model_id_key;
         $this->target_column = $target_column ?? $name;
+        $this->updated_at_column = $updated_at_column;
         
         return $this;
     }
@@ -37,6 +53,17 @@ class ModelAttribute extends AbstractModelAttribute
     ########             CLASS SPECIFIC METHODS             #########
     #################################################################
     #################################################################
+    /**
+     * Retrieves the formatted attribute value based on its type.
+     *
+     * This method handles type-specific formatting for different attribute types:
+     * - LIST: Converts arrays to comma-separated strings
+     * - DATE: Formats DateTime objects to 'd/m/Y' format
+     * - DATETIME: Formats DateTime objects to 'd/m/Y H:i:s' format
+     * - Other types: Returns the raw value
+     *
+     * @return mixed The formatted attribute value or null if the value is null
+     */
     protected function getAttributeValue() {
         switch ($this->type) {
             case AttributeType::LIST:
@@ -50,19 +77,20 @@ class ModelAttribute extends AbstractModelAttribute
         }
     }
     /**
-     * Sets the attribute value for the model.
+     * Sets and validates the attribute value for the model.
      *
-     * @param mixed $attribute_value The value to set for the attribute.
-     * @param bool $is_creation Indicates if the operation is a creation (true) or an edit (false).
-     * @return static|null Returns the current instance of the model or null if validation fails.
+     * This method handles the complete process of setting an attribute value including:
+     * - Validation of required fields
+     * - Application of default values when appropriate
+     * - Type-specific parsing and validation
+     * - Error handling and message generation
      *
-     * This method performs the following operations:
-     * - Initializes messages and determines the mode (create/edit).
-     * - Checks if the attribute value is required and handles null values accordingly.
-     * - Uses the default value if provided and necessary.
-     * - Parses and sets the attribute value, handling any exceptions that occur during parsing.
+     * @param mixed $attribute_value The value to set for the attribute
+     * @param bool $is_creation Whether this is a creation operation (true) or update (false)
+     * @return static Returns the current instance for method chaining
+     * @throws Throwable If an error occurs during value parsing
      *
-     * @throws Throwable If an error occurs during value parsing.
+     * @see parseValue() for type-specific parsing logic
      */
     protected function setAttributeValue($attribute_value, bool $is_creation = false): static {
         $messages = [];
@@ -110,22 +138,36 @@ class ModelAttribute extends AbstractModelAttribute
     /**
      * Updates the attribute value in the database.
      *
-     * This method updates the value of a specific attribute in the database table associated with the model.
-     * It also updates the `updated_at` timestamp to the current date and time.
+     * Performs a database UPDATE operation to store the current attribute value.
+     * Automatically updates the timestamp column if configured.
      *
-     * @throws Exception If the object ID is not set.
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If the object ID is not set
      *
-     * @return static Returns the current instance of the model.
+     * @see Database::execute() for the underlying database operation
      */
     protected function updateAttributeValue(): static
     {
         if($this->object_id === null) {
             throw new Exception("Object ID not set");
         }
-        $datetime = new DateTime("now", Config::tz());
-        $datetime = $datetime->format('Y-m-d H:i:s');
         
-        Database::execute("UPDATE $this->model_table SET $this->target_column = ?, updated_at = ? WHERE $this->model_id_key = ?", "sss", $this->value, $datetime, $this->object_id);
+        $set_clauses = ["$this->target_column = ?"];
+        $values = [$this->value];
+        $types = "s";
+        
+        if ($this->updated_at_column) {
+            $datetime = new DateTime("now", Config::tz());
+            $set_clauses[] = "$this->updated_at_column = ?";
+            $values[] = $datetime->format('Y-m-d H:i:s');
+            $types .= "s";
+        }
+        
+        $values[] = $this->object_id;
+        $types .= "s";
+        
+        $set_clause = implode(", ", $set_clauses);
+        Database::execute("UPDATE $this->model_table SET $set_clause WHERE $this->model_id_key = ?", $types, ...$values);
 
         return $this;
     }
@@ -133,13 +175,13 @@ class ModelAttribute extends AbstractModelAttribute
     /**
      * Fetches the attribute value from the database.
      *
-     * This method retrieves the value of a specific attribute for the current object
-     * from the database. It constructs a query using the model's table, target column,
-     * and object ID to fetch the attribute value as an array.
+     * Retrieves the current value of this attribute from the database using the
+     * configured table, column, and object ID.
      *
-     * @throws Exception if the object ID is not set.
+     * @return array The attribute value from the database
+     * @throws Exception If the object ID is not set
      *
-     * @return array The attribute value fetched from the database.
+     * @see Query::from() for the query builder used
      */
     protected function fetchAttributeValue() {
         if ($this->object_id === null) {
@@ -151,11 +193,24 @@ class ModelAttribute extends AbstractModelAttribute
     }
 
     /**
-     * Parses the given value based on the type of the model attribute.
+     * Parses and validates a value according to the attribute's type.
      *
-     * @param mixed $value The value to be parsed.
-     * @return mixed The parsed value.
-     * @throws Exception If the value does not match the expected type.
+     * Handles type-specific parsing and validation for all supported attribute types:
+     * - CHAR: String validation with 255 character limit
+     * - TEXT: String validation without length limit
+     * - BOOL: Boolean conversion from various string representations
+     * - INT: Integer conversion with numeric validation
+     * - FLOAT: Float conversion with numeric validation
+     * - LIST: Comma-separated string to array conversion
+     * - DATE/DATETIME: DateTime object creation with timezone support
+     * - EMAIL: Email format validation
+     * - RELATION/ID: Pass-through for relationship values
+     *
+     * @param mixed $value The raw value to parse and validate
+     * @return mixed The parsed and validated value in the appropriate PHP type
+     * @throws Exception If the value doesn't match the expected type or format
+     *
+     * @see AttributeType for all supported attribute types
      */
     protected function parseValue($value)
     {

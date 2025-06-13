@@ -5,6 +5,17 @@ namespace pz;
 use Exception;
 use pz\Enums\model\AttributeType;
 
+/**
+ * Abstract base class for model attributes.
+ *
+ * This class provides the foundation for all model attribute types including:
+ * - Basic attributes (string, int, date, etc.)
+ * - Link attributes (one-to-one, one-to-many relationships)
+ * - Link-through attributes (many-to-many relationships)
+ *
+ *
+ * @package pz
+ */
 abstract class AbstractModelAttribute
 {
     public AttributeType $type;
@@ -36,12 +47,32 @@ abstract class AbstractModelAttribute
     public bool $is_inversed;    
     public bool $is_link;
     public bool $is_link_through;
+    
+    public ?String $updated_at_column;
+    public ?String $target_updated_at_column;
 
+    /**
+     * Marks this attribute as required.
+     *
+     * Required attributes must have a value and cannot be null during
+     * creation or update operations.
+     *
+     * @return static Returns the current instance for method chaining
+     */
     public function setRequired(): static {
         $this->is_required = true;
         return $this;
     }
 
+    /**
+     * Sets the default value for this attribute.
+     *
+     * The default value will be used when no value is provided for
+     * required attributes during creation operations.
+     *
+     * @param mixed $default_value The default value to use
+     * @return static Returns the current instance for method chaining
+     */
     public function setDefault($default_value): static {
         $this->default_value = $default_value;
         return $this;
@@ -52,10 +83,57 @@ abstract class AbstractModelAttribute
     ########             CLASS SPECIFIC METHODS             #########
     #################################################################
     #################################################################
+    /**
+     * Retrieves the formatted attribute value for external use.
+     *
+     * Subclasses must implement this method to handle type-specific
+     * formatting for display or API responses.
+     *
+     * @return mixed The formatted attribute value
+     */
     abstract protected function getAttributeValue();
+
+    /**
+     * Sets and validates the attribute value.
+     *
+     * Subclasses must implement this method to handle type-specific
+     * validation, parsing, and value assignment.
+     *
+     * @param mixed $attribute_value The value to set
+     * @param bool $is_creation Whether this is a creation operation
+     * @return static Returns the current instance for method chaining
+     */
     abstract protected function setAttributeValue($attribute_value, bool $is_creation): static;
+
+    /**
+     * Updates the attribute value in the database.
+     *
+     * Subclasses must implement this method to handle database
+     * update operations specific to their attribute type.
+     *
+     * @return static Returns the current instance for method chaining
+     */
     abstract protected function updateAttributeValue(): static;
+
+    /**
+     * Fetches the attribute value from the database.
+     *
+     * Subclasses must implement this method to handle database
+     * retrieval operations specific to their attribute type.
+     *
+     * @return mixed The raw attribute value from the database
+     */
     abstract protected function fetchAttributeValue();
+
+    /**
+     * Parses and validates a raw value according to the attribute type.
+     *
+     * Subclasses must implement this method to handle type-specific
+     * parsing, validation, and conversion logic.
+     *
+     * @param mixed $value The raw value to parse
+     * @return mixed The parsed and validated value
+     */
     abstract protected function parseValue($value);
     
     #################################################################
@@ -64,10 +142,13 @@ abstract class AbstractModelAttribute
     #################################################################
     #################################################################
     /**
-     * Creates a new attribute value.
+     * Creates a new attribute value during model creation.
      *
-     * @param mixed $value The value to set for the attribute.
-     * @return static Returns the current instance for method chaining.
+     * Sets the attribute value with creation-specific validation rules,
+     * including required field checks and default value application.
+     *
+     * @param mixed $value The value to set for the attribute
+     * @return static Returns the current instance for method chaining
      */
     public function create($value): static {
         $this->setAttributeValue($value, true);
@@ -75,12 +156,15 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Updates the attribute value.
+     * Updates the attribute value with optional database persistence.
      *
-     * @param mixed $value The new value to set for the attribute.
-     * @param int|null $object_id The ID of the object to update. Default is null.
-     * @param bool $update_in_db Whether to update the value in the database. Default is false.
-     * @return static Returns the current instance for method chaining.
+     * Sets the attribute value with update-specific validation rules.
+     * Optionally persists the change to the database immediately.
+     *
+     * @param mixed $value The new value to set for the attribute
+     * @param int|null $object_id The ID of the object to update (default: null)
+     * @param bool $update_in_db Whether to persist changes to database (default: false)
+     * @return static Returns the current instance for method chaining
      */
     public function update($value, $object_id = null, $update_in_db = false): static {
         $this->setId($object_id);
@@ -92,14 +176,15 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Adds a value to the attribute.
+     * Adds a value to link attributes (relationships).
      *
-     * This method is only available for link attributes.
+     * Appends a new relationship value to the existing collection.
+     * Only available for link and link-through attributes.
      *
-     * @param mixed $value The value to add to the attribute.
-     * @param bool $update_in_db Whether to update the value in the database. Default is false.
-     * @return static Returns the current instance for method chaining.
-     * @throws Exception If the attribute is not a link attribute.
+     * @param mixed $value The relationship value to add
+     * @param bool $update_in_db Whether to persist changes to database (default: false)
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If the attribute is not a link attribute
      */    
     public function add($value, bool $update_in_db = false): static {
         if(!$this->is_link) {
@@ -114,14 +199,16 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Removes a value from the attribute.
+     * Removes a value from link attributes (relationships).
      *
-     * This method is only available for link attributes.
+     * Removes a specific relationship by target ID. For non-inversed relationships,
+     * clears the entire relationship. For inversed relationships, removes only
+     * the specified target from the collection.
      *
-     * @param int $target_id The ID of the target object to remove from the attribute.
-     * @param bool $update_in_db Whether to update the value in the database. Default is false.
-     * @return static Returns the current instance for method chaining.
-     * @throws Exception If the attribute is not a link attribute.
+     * @param int $target_id The ID of the target object to remove
+     * @param bool $update_in_db Whether to persist changes to database (default: false)
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If the attribute is not a link attribute
      */
     public function unset($target_id, bool $update_in_db = false): static {
         if(!$this->is_link) {
@@ -139,16 +226,19 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Retrieves the value of the attribute.
+     * Retrieves the attribute value in the requested format.
      *
-     * @param bool $as_object If true, returns the value as an object. Otherwise, returns the value as a formatted string.
-     * @return mixed|null The value of the attribute, formatted based on its type, or null if the attribute is not valid.
+     * Returns either the raw object value or a formatted representation
+     * suitable for display or API responses.
      *
-     * The returned value depends on the attribute type:
-     * - For AttributeType::LIST, returns a comma-separated string of the list values.
-     * - For AttributeType::DATE, returns the date formatted as 'd/m/Y'.
-     * - For AttributeType::DATETIME, returns the datetime formatted as 'd/m/Y H:i:s'.
-     * - For other types, returns the raw value.
+     * @param bool $as_object If true, returns raw value; if false, returns formatted value
+     * @return mixed|null The attribute value or null if invalid
+     *
+     * Formatted output varies by type:
+     * - LIST: Comma-separated string
+     * - DATE: 'd/m/Y' format
+     * - DATETIME: 'd/m/Y H:i:s' format
+     * - Others: Raw value
      */
     public function get(bool $as_object = false) {
         if(!$this->is_valid) {
@@ -163,12 +253,13 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Loads the model attribute with the given object ID.
+     * Loads the attribute value from the database using an object ID.
      *
-     * This method sets the ID of the model attribute and fetches its value from the database.
+     * Fetches the current value from the database and initializes the attribute
+     * with the retrieved data.
      *
-     * @param int $object_id The ID of the object to load.
-     * @return static Returns the current instance of the model attribute.
+     * @param int $object_id The ID of the object to load
+     * @return static Returns the current instance for method chaining
      */
     public function load($object_id): static {
         $this->setId($object_id)->setAttributeValue($this->fetchAttributeValue(), false);
@@ -176,11 +267,14 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Loads the attribute from a given value and object ID.
+     * Loads the attribute from a provided value and object ID.
      *
-     * @param mixed $value The value to set for the attribute.
-     * @param int $object_id The ID of the object to associate with the attribute.
-     * @return static Returns the current instance with the updated attribute.
+     * Initializes the attribute with a known value and associates it
+     * with the specified object ID.
+     *
+     * @param mixed $value The value to set for the attribute
+     * @param int $object_id The ID of the object to associate with
+     * @return static Returns the current instance for method chaining
      */
     public function loadFromValue($value, $object_id): static {
         $this->setId($object_id)->setAttributeValue($value, false);
@@ -188,11 +282,13 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Saves the current model attribute.
+     * Persists the current attribute value to the database.
      *
-     * This method updates the attribute value and returns the current instance of the model.
+     * Updates the database with the current attribute value if the
+     * attribute is in a valid state.
      *
-     * @return static The current instance of the model.
+     * @param mixed $object_id Optional object ID to set before saving
+     * @return static Returns the current instance for method chaining
      */
     public function save($object_id = null): static {
         $this->setId($object_id);
@@ -203,12 +299,13 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Deletes the attribute value for the given object ID.
+     * Deletes the attribute value from the database.
      *
-     * If the attribute is required, it will not be deleted and an error message will be added to the messages array.
+     * Sets the attribute value to null and persists the change.
+     * Required attributes cannot be deleted and will generate an error.
      *
-     * @param int|null $object_id The ID of the object whose attribute value is to be deleted. Defaults to null.
-     * @return static Returns the current instance of the class.
+     * @param int|null $object_id The ID of the object to update (default: null)
+     * @return static Returns the current instance for method chaining
      */
     public function delete($object_id = null): static {
         if($this->is_required) {
@@ -221,11 +318,14 @@ abstract class AbstractModelAttribute
     }
     
     /**
-     * Sets the ID of the object associated with the attribute.
+     * Sets the object ID for this attribute instance.
      *
-     * @param int $object_id The ID of the object.
-     * @return static Returns the current instance of the model attribute.
-     * @throws Exception If the object ID is already set.
+     * Associates this attribute with a specific object instance.
+     * Prevents changing the ID once it's been set to maintain data integrity.
+     *
+     * @param int $object_id The ID of the object to associate with
+     * @return static Returns the current instance for method chaining
+     * @throws Exception If attempting to change an already set object ID
      */
     public function setId($object_id): static {
         if($object_id !== null) {
@@ -238,10 +338,15 @@ abstract class AbstractModelAttribute
     }
 
     /**
-     * Generates a theorical name for the relation table based on the source and target models and their cardinalities.
+     * Generates conventional table names for relationships.
      *
-     * @param string $mode Wether we are looking for the name of the source table, the target table or the link_through table.
-     * @return string The name of the relation table.
+     * Creates standardized table names based on model names, bundle configuration,
+     * and relationship type. Supports different naming conventions for various
+     * relationship patterns.
+     *
+     * @param string $mode The table type to generate ('model', 'target', or 'relation')
+     * @param bool $is_many Whether this is a many-to-many relationship (default: true)
+     * @return string The generated table name
      */
     protected function makeRelationTableName(String $mode = 'relation', bool $is_many = true): String
     {
@@ -280,11 +385,21 @@ abstract class AbstractModelAttribute
     ########                     GETTERS                     ########
     #################################################################
     #################################################################
+    /**
+     * Checks if this attribute is required.
+     *
+     * @return bool True if the attribute is required, false otherwise
+     */
     public function isRequired()
     {
         return $this->is_required;
     }
     
+    /**
+     * Gets the string representation of the attribute type.
+     *
+     * @return string The attribute type as a string value
+     */
     public function getType()
     {
         return $this->type->value;
@@ -339,6 +454,11 @@ abstract class AbstractModelAttribute
      * @return string The SQL formatted field of the attribute.
      */
     public function getSQLField() {
+        // Return null if the target column is not set
+        if(empty($this->target_column)) {
+            return null;
+        }
+        
         if($this->type === AttributeType::ID) {
             return $this->target_column .' INT AUTO_INCREMENT PRIMARY KEY';
         } 

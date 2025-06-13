@@ -19,14 +19,13 @@ class User extends Model {
 
     protected $primaryLoginMethod;
     private $passwordOptions = [];
-    private $passwordAlgorithm = PASSWORD_DEFAULT;
-    private $current_nonce;
+    private $passwordAlgorithm = PASSWORD_DEFAULT; #TODO: make this configurable
 
     public function __construct() {
         $this->canView = Privacy::PUBLIC;
         $this->canEdit = Privacy::PROTECTED;
+        $this->timestamps(false);
         $this->user(null);
-        $this->timeStamps(false);
         $this->email();
         $this->attribute("username", AttributeType::CHAR, true);
         $this->primaryLoginMethod("username");

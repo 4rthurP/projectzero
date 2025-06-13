@@ -11,7 +11,7 @@ use pz\Log;
 use pz\{
     ModelAttribute,
     ModelAttributeLink, 
-    ModelAttributeLinkThrough
+    ModelAttributeLinkThrough,
 };
 use pz\database\Database;
 use pz\database\Query;
@@ -66,15 +66,13 @@ class Model
         if (!$this->hasDefinedUserAttribute) {
             $this->user();
         }
-        if (!$this->hasTimestampsAttributes) {
-            $this->timestamps();
-        }
     }
 
     /**
      * Initializes the model.
      * This method is called by the first attribute declared to make sure that we have a table name before defining the attributes.
-     *
+     * 
+     * @param bool $run_timestamps Whether to run the timestamps setup. False is only used when calling this method from the timestamps method itself to avoid running it twice.
      * @throws Exception if the model's name has not been defined.
      */
     protected function initialize()
@@ -93,7 +91,12 @@ class Model
         if (!isset($this->table)) {
             $this->makeModelTableName();
         }
+        
         $this->is_initialized = true;
+
+        if(!$this->hasTimestampsAttributes) {
+            $this->timestamps();
+        }
     }
 
     /**
@@ -122,17 +125,26 @@ class Model
     }
 
     /**
-     * Defines a new attribute for the model.
+     * Defines a new attribute for this model.
+     * 
+     * This method creates a database field that can store various types of data.
+     * Common types include CHAR (text), INT (numbers), DATETIME (dates), and BOOL (true/false).
      *
-     * @param string $name The name of the attribute.
-     * @param AttributeType $type The type of the attribute.
-     * @param bool $required Indicates if the attribute is required.
-     * @param string|null $default_value The default value of the attribute.
-     * @param string|null $column The column name in the database.
-     * @return ModelAttribute The created ModelAttribute object.
-     * @throws Exception If the attribute with the same name already exists.
+     * @param string $name What you want to call this attribute (e.g., 'title', 'age', 'email')
+     * @param AttributeType $type What kind of data this will store (default: CHAR for text)
+     * @param bool $required Whether this field must have a value (default: false)
+     * @param string|null $default_value What value to use if none is provided
+     * @param string|null $column Database column name (uses $name if not specified)
+     * @return ModelAttribute The created attribute object
+     * @throws Exception If an attribute with this name already exists
      */
-    protected function attribute(String $name, AttributeType $type = AttributeType::CHAR, bool $required = false, ?String $default_value = null, ?String $column = null): ModelAttribute
+    protected function attribute(
+        String $name, 
+        AttributeType $type = AttributeType::CHAR, 
+        bool $required = false, 
+        ?String $default_value = null, 
+        ?String $column = null
+    ): ModelAttribute
     {
         if (!$this->is_initialized) {
             $this->initialize();
@@ -151,25 +163,44 @@ class Model
         }
 
         $column = $column ?? $name;
-        $attribute = new ModelAttribute($name, $type, get_class($this), static::$bundle, $required, $default_value, $this->table, $this->idKey, $column);
+        $attribute = new ModelAttribute(
+            $name, 
+            $type, 
+            get_class($this), 
+            static::$bundle, 
+            $required, 
+            $default_value, 
+            $this->table, 
+            $this->idKey, 
+            $column, 
+            $this->timestampUpdatedAtName ?? null
+        );
 
         $this->attributes[$name] = $attribute;
         return $attribute;
     }
 
     /**
-     * Helper function to define an id attribute for the model.
+     * Sets up the unique identifier (ID) for this model.
+     * 
+     * Every model needs an ID to distinguish one record from another.
+     * By default, this creates an auto-incrementing integer ID.
      *
-     * @param string $name The name of the attribute.
-     * @param bool $auto_increment Whether the id attribute should auto increment.
-     * @param AttributeType $idType The type of the id attribute.
-     * @param string $column The column name in the database.
-     * @return ModelAttribute The created id attribute.
-     * @throws Exception If the attribute with the given name already exists.
-     * @throws Exception If an id attribute has already been defined.
-     * @throws Exception If the id attribute type is not 'id' or 'uuid'.
+     * @param string $name What to call the ID field (default: 'id')
+     * @param bool $auto_increment Whether to automatically assign numbers (default: true)
+     * @param AttributeType $idType Type of ID - either auto-incrementing number or UUID (default: ID)
+     * @param string $column Database column name (default: 'id')
+     * @return ModelAttribute The newly created ID attribute
+     * @throws Exception If an attribute with this name already exists
+     * @throws Exception If an ID has already been defined for this model
+     * @throws Exception If the ID type is not supported (must be ID or UUID)
      */
-    protected function id(String $name = 'id', bool $auto_increment = true, AttributeType $idType = AttributeType::ID, String $column = 'id'): self
+    protected function id(
+        String $name = 'id', 
+        bool $auto_increment = true, 
+        AttributeType $idType = AttributeType::ID, 
+        String $column = 'id'
+    ): ModelAttribute
     {
         if (!$this->is_initialized) {
             $this->initialize();
@@ -188,7 +219,18 @@ class Model
         }
 
         //The id attribute is always required, but is not defined as such in the attribute definition because it would cause conflicts when creating the model (requiring the id attribute to be defined before the ressource is created in the db)
-        $attribute = new ModelAttribute($name, $idType, get_class($this), static::$bundle, false, null, $this->table, $name, $column);
+        $attribute = new ModelAttribute(
+            $name, 
+            $idType, 
+            get_class($this), 
+            static::$bundle, 
+            false, 
+            null, 
+            $this->table, 
+            $name, 
+            $column, 
+            $this->timestampUpdatedAtName
+        );
 
         $this->attributes[$name] = $attribute;
 
@@ -197,20 +239,27 @@ class Model
         $this->idType = $idType;
         $this->hasDefinedIdAttribute = true;
 
-        return $this;
+        return $attribute;
     }
 
     /**
-     * Helper function to define a user attribute for the model.
+     * Links this model to a user account.
+     * 
+     * This automatically creates a connection to the user who owns or created this record.
+     * Useful for tracking ownership and implementing user-specific permissions.
      *
-     * @param string|null $attribute_name The name of the attribute. If null, the user attribute will be unset.
-     * @param string $userKey The key of the user attribute.
-     * @param Privacy $canView The privacy level for viewing the user attribute.
-     * @param Privacy $canEdit The privacy level for editing the user attribute.
-     * @return ModelAttribute|null The created user attribute or null if $attribute_name is null.
-     * @throws Exception If the attribute with $userKey or a user attribute has already been defined.
+     * @param string|null $userKey Name of the field that will store the user ID (default: 'user_id')
+     * @param Privacy $canView Who can see the user information (default: PROTECTED)
+     * @param Privacy $canEdit Who can change the user assignment (default: PROTECTED)
+     * @return self This model instance for method chaining
+     * @throws Exception If an attribute with this name already exists
+     * @throws Exception If a user attribute has already been defined for this model
      */
-    protected function user(?String $userKey = 'user_id', Privacy $canView = Privacy::PROTECTED, Privacy $canEdit = Privacy::PROTECTED): self
+    protected function user(
+        ?String $userKey = 'user_id', 
+        Privacy $canView = Privacy::PROTECTED, 
+        Privacy $canEdit = Privacy::PROTECTED
+    ): self
     {
         if (!$this->is_initialized) {
             $this->initialize();
@@ -232,7 +281,18 @@ class Model
             return $this;
         }
 
-        $attribute = new ModelAttribute($userKey, AttributeType::INT, get_class($this), static::$bundle, true, null, $this->table, $this->idKey, $userKey);
+        $attribute = new ModelAttribute(
+            $userKey, 
+            AttributeType::INT, 
+            get_class($this), 
+            static::$bundle, 
+            true, 
+            null, 
+            $this->table, 
+            $this->idKey, 
+            $userKey, 
+            $this->timestampUpdatedAtName
+        );
 
         $this->attributes[$userKey] = $attribute;
 
@@ -245,47 +305,50 @@ class Model
     }
 
     /**
-     * Sets up timestamps for the model.
-     * By default, timestamps are enabled and set to 'created_at', 'updated_at', and 'deleted_at'.
-     * To disable timestamps, call this function with the first argument set to false.
-     * To disable soft deletion of the model, set the timestampDeletedAtName to null (or call the dedicated softDelete function with the first argument set to false).
+     * Automatically track when records are created, updated, and deleted.
+     * 
+     * This adds special fields that automatically record timestamps for important events.
+     * Very useful for auditing and tracking changes over time.
      *
-     * @param bool $hasTimestamps Determines if timestamps should be enabled or disabled.
-     * @param string $timestampCreatedAtName The name of the created_at timestamp attribute.
-     * @param string $timestampUpdatedAtName The name of the updated_at timestamp attribute.
-     * @param string $timestampDeletedAtName The name of the deleted_at timestamp attribute.
-     * @return self Returns the model instance.
-     * @throws Exception Throws an exception if timestamps have already been defined.
+     * @param bool $hasTimestamps Whether to enable automatic timestamps (default: true)
+     * @param string $timestampCreatedAtName Field name for creation time (default: 'created_at')
+     * @param string $timestampUpdatedAtName Field name for last update time (default: 'updated_at')
+     * @param string $timestampDeletedAtName Field name for deletion time (default: 'deleted_at')
+     * @return self This model instance for method chaining
+     * @throws Exception If timestamps have already been configured for this model
      */
-    protected function timestamps(bool $hasTimestamps = true, ?String $timestampCreatedAtName = 'created_at', ?String $timestampUpdatedAtName = 'updated_at', String $timestampDeletedAtName = 'deleted_at'): self
+    protected function timestamps(
+        bool $hasTimestamps = true, 
+        ?String $timestampCreatedAtName = 'created_at', 
+        ?String $timestampUpdatedAtName = 'updated_at', 
+        String $timestampDeletedAtName = 'deleted_at'
+    ): self
     {
-        if (!$this->is_initialized) {
-            $this->initialize();
-        }
-
+        // Used to check whether of not timestamps have already been defined
         if ($this->hasTimestampsAttributes) {
             throw new Exception("Timestamps have already been defined");
         }
+        $this->hasTimestampsAttributes = true;
 
+        // If the model has not been initialized yet, we initialize it
+        if (!$this->is_initialized) {
+            $this->initialize();
+        }
+        
         $this->hasTimeStamps = $hasTimestamps;
         
-        if($this->hasTimeStamps && $timestampCreatedAtName !== null) {
-            if(!$this->attributeExists($timestampCreatedAtName)) {
-                $this->attribute($timestampCreatedAtName, AttributeType::DATETIME, true, null,  $timestampCreatedAtName);
-            }
-            $this->timestampCreatedAtName = $timestampCreatedAtName;
-        } else {
-            if($this->attributeExists($timestampCreatedAtName)) {
-                $this->unsetAttribute($timestampCreatedAtName);
-            }
-            $this->timestampCreatedAtName = null;
-        }
-
+        // Updated at attribute is used by all attributes, so we always set it first
         if($this->hasTimeStamps && $timestampUpdatedAtName !== null) {
-            if(!$this->attributeExists($timestampUpdatedAtName)) {
-                $this->attribute($timestampUpdatedAtName, AttributeType::DATETIME, true, null, $timestampUpdatedAtName);
-            }
             $this->timestampUpdatedAtName = $timestampUpdatedAtName;
+            if(!$this->attributeExists($timestampUpdatedAtName)) {
+                $this->attribute(
+                    $timestampUpdatedAtName, 
+                    AttributeType::DATETIME, 
+                    true, 
+                    null, 
+                    $timestampUpdatedAtName
+                );
+            }
         } else {
             if($this->attributeExists($timestampUpdatedAtName)) {
                 $this->unsetAttribute($timestampUpdatedAtName);
@@ -293,25 +356,53 @@ class Model
             $this->timestampUpdatedAtName = null;
         }
 
+        if($this->hasTimeStamps && $timestampCreatedAtName !== null) {
+            $this->timestampCreatedAtName = $timestampCreatedAtName;
+            if(!$this->attributeExists($timestampCreatedAtName)) {
+                $this->attribute(
+                    $timestampCreatedAtName, 
+                    AttributeType::DATETIME, 
+                    true, 
+                    null,  
+                    $timestampCreatedAtName
+                );
+            }
+        } else {
+            if($this->attributeExists($timestampCreatedAtName)) {
+                $this->unsetAttribute($timestampCreatedAtName);
+            }
+            $this->timestampCreatedAtName = null;
+        }
+
         ///Uses the dedicted function to set up softDelete
         $this->softDelete($this->hasTimeStamps, $timestampDeletedAtName);
 
-        $this->hasTimestampsAttributes = true;
         return $this;
     }
 
     /**
-     * Add a soft delete attribute to the model.
-     * By default all models are soft deleted, simply call this function with the first argument set to false to disable soft delete (or call the timestamps function with the deleted_at name set to null)
+     * Enables "soft delete" - records are marked as deleted instead of being permanently removed.
+     * 
+     * This is safer than permanently deleting data, as you can recover "deleted" records later.
+     * When soft delete is enabled, deleted records are hidden from normal queries but still exist in the database.
      *
-     * @param bool $is_soft_delete Whether to perform soft delete or not.
-     * @param string $timestampDeletedAtName The name of the timestamp column for deleted_at.
-     * @return self The updated model instance.
+     * @param bool $is_soft_delete Whether to use soft delete (default: true)
+     * @param string $timestampDeletedAtName Field name to track deletion time (default: 'deleted_at')
+     * @return self This model instance for method chaining
      */
-    protected function softDelete(bool $is_soft_delete = true, String $timestampDeletedAtName = 'deleted_at'): self {
+    protected function softDelete(
+        bool $is_soft_delete = true, 
+        String $timestampDeletedAtName = 'deleted_at'
+    ): self {
         if($is_soft_delete && $timestampDeletedAtName !== null) {
             if(!$this->attributeExists($timestampDeletedAtName)) {
-                $this->attribute($timestampDeletedAtName, AttributeType::DATETIME, false, null,  $timestampDeletedAtName);
+                $this->attribute(
+                    $timestampDeletedAtName, 
+                    AttributeType::DATETIME, 
+                    false, 
+                    null,  
+                    $timestampDeletedAtName
+                );
             }
             $this->timestampDeletedAtName = $timestampDeletedAtName;
             $this->is_soft_delete = true;
@@ -327,18 +418,26 @@ class Model
     }
 
     /**
-     * Creates a link  (relational attribute) between the current model and a target model.
+     * Creates a direct link to another model (one-to-one or many-to-one relationship).
+     * 
+     * This creates a foreign key relationship where this model stores a reference to another model.
+     * For example, a Post model might link to a User model to track the author.
      *
-     * @param string|class $target_model The target model class or its fully qualified name.
-     * @param string|null $name The name of the link attribute. If not provided, it will default to the target model's name.
-     * @param bool $is_required Indicates if the link attribute is required or not. Default is false.
-     * @param string|null $column The column name in the current model's table that holds the link attribute. If not provided, it will default to the target model's name appended with '_id'.
-     * @param string|null $target_column The column name in the target model's table that holds the link attribute. If not provided, it will default to 'id'.
-     * @param string|null $target_table The table name of the target model. If not provided, it will default to the target model's table name.
-     * @return ModelAttribute The created link attribute.
-     * @throws Exception If the target model is not a subclass of Model.
+     * @param string|class $target The model class you want to link to
+     * @param string|null $name What to call this relationship (default: target model's name)
+     * @param bool $is_required Whether this link is mandatory (default: false)
+     * @param string|null $target_column Column in the target model to link to (default: 'id')
+     * @param bool $is_inversed Whether this is the inverse side of the relationship (default: false)
+     * @return ModelAttributeLink|null The created link attribute
+     * @throws Exception If the target is not a valid Model class
      */
-    protected function linkTo($target, ?String $name = null, bool $is_required = false, ?String $target_column = null): ModelAttributeLink|null
+    protected function linkTo(
+        $target, 
+        ?String $name = null, 
+        bool $is_required = false, 
+        ?String $target_column = null,
+        bool $is_inversed = false,
+    ): ModelAttributeLink|null
     {
         if(!$this->load_relations) {
             return null; 
@@ -358,7 +457,26 @@ class Model
         $default_value = null;
         $name = $name ?? $target::getName();
 
-        $attribute = new ModelAttributeLink($name, get_class($this), static::$bundle, $is_required, false, $default_value, $this->table, $this->idKey, $target_column, $target);
+        // Get target model's timestamp info
+        $target_model = new $target(false);
+        $target_updated_at = $target_model->timestampUpdatedAtName ?? null;
+        
+        $attribute = new ModelAttributeLink(
+            $name, 
+            get_class($this), 
+            static::$bundle, 
+            $is_required, 
+            $is_inversed, 
+            $default_value, 
+            $this->table, 
+            $this->idKey, 
+            $target_column, 
+            $target, 
+            null, 
+            null, 
+            $this->timestampUpdatedAtName, 
+            $target_updated_at
+        );
 
         $this->attributes[$name] = $attribute;
         $this->objects_to_links_dict[$target] = $name;
@@ -367,65 +485,83 @@ class Model
     }
 
     /**
-     * Declares an inverse link (relational attribute) between the current model and a target model.
+     * Creates an inverse relationship where another model links back to this one.
+     * 
+     * This is useful for accessing related records from the "other side" of a relationship.
+     * For example, if Posts link to Users, you can use this to get all Posts by a User.
      *
-     * @param string|class $target_model The target model class or its fully qualified name.
-     * @param string|null $name The name of the attribute. If null, the target model's name will be used.
-     * @param string $n_source The source cardinality of the relationship. Default is 'one'.
-     * @param bool $is_required Determines if the attribute is required. Default is false.
-     * @param string|null $target_model_column The column name in the target model's table. If null, the current model's name with '_id' suffix will be used.
-     * @param string|null $target_table The target model's table name. If null, the current model's table name will be used.
-     * @return ModelAttributeLink The created ModelAttributeLink object.
-     * @throws Exception If the target model is not a subclass of Model.
+     * @param string|class $target The model that links back to this one
+     * @param string|null $name What to call this relationship (default: target model's name)
+     * @param string|null $target_column Column in the target model that references this model
+     * @param bool $is_linked_through Whether to use an intermediate table (default: false)
+     * @param bool $is_many Whether this returns multiple records (default: false)
+     * @param string|null $relation_table Name of intermediate table (for many-to-many)
+     * @param string|null $relation_model_column Column for this model in intermediate table
+     * @param string|null $relation_model_type Type column for polymorphic relationships
+     * @return ModelAttributeLink|ModelAttributeLinkThrough The created relationship attribute
+     * @throws Exception If the target is not a valid Model class
      */
-    protected function linkedTo($target, ?String $name = null, ?String $target_column = null): ModelAttributeLink|null
+    protected function linkedTo(
+        $target, 
+        ?String $name = null, 
+        ?String $target_column = null,
+        bool $is_linked_through = false,
+        bool $is_many = false,
+        ?String $relation_table = null, 
+        ?String $relation_model_column = null, 
+        ?String $relation_model_type = null,
+    ): ModelAttributeLink|ModelAttributeLinkThrough|null
     {
-        if(!$this->load_relations) {
-            return null; 
-        }
-        if (!$this->is_initialized) {
-            $this->initialize();
-        }
-
-        if (!is_subclass_of($target, Model::class)) {
-            throw new Exception("The target model must be a subclass of Model");
-        }
-
-        if(isset($this->objects_to_links_dict[$target])) {
-            throw new Exception("The link to the target model has already been defined");
+        if(!$is_linked_through) {
+            return $this->linkTo(
+                $target, 
+                $name, 
+                false, // Not required by default
+                $target_column, 
+                true // Inversed link
+            );
         }
 
-
-        $name = $name ?? $target::getName();
-        $default_value = null;
-
-        $$attribute = new ModelAttributeLink($name, get_class($this), static::$bundle, false, false, $default_value, $this->table, $this->idKey, $target_column, $target);
-
-        $this->attributes[$name] = $attribute;
-        $this->objects_to_links_dict[$target_classname] = $name;
-
-        return $attribute;
+        return $this->linkThrough(
+            $target, 
+            $name, 
+            $is_many, 
+            $target_column, 
+            $relation_table,
+            $relation_model_column,
+            $relation_model_type,
+            true // Inversed link
+        );
     }
 
     /**
-     * Creates a link (relational attribute) between the current model and a target model, with a liaison created through an intermediate table (useful for many-to-many relations).
+     * Creates a many-to-many relationship using an intermediate table.
+     * 
+     * This is useful when multiple records from each model can be related to each other.
+     * For example, Users can have many Roles, and Roles can belong to many Users.
+     * The intermediate table stores the connections between them.
      *
-     * @param string|Model $target_model The target model or its class name.
-     * @param string $n_links The number of links between the models. Default is 'one'.
-     * @param bool $is_inversed Determines if the link is inversed. Default is false.
-     * @param string|null $name The name of the link. If not provided, it will use the target model's name.
-     * @param bool $is_required Determines if the link is required. Default is false.
-     * @param string|null $target_model_table The table name of the target model. If not provided, it will be inferred from the target model's class name.
-     * @param string|null $target_model_column The column name of the target model. If not provided, it will be inferred from the target model's class name.
-     * @param string|null $link_through_table The table name of the link-through model. If not provided, it will be generated based on the current model, target model, and link direction.
-     * @param string|null $link_through_model_column The column name of the link-through model that represents the current model. If not provided, it will be inferred from the current model's class name.
-     * @param string|null $link_through_target_column The column name of the link-through model that represents the target model. If not provided, it will be inferred from the target model's class name.
-     * @param string|null $link_through_model_type The type of the link-through model that represents the current model. If not provided, it will be inferred from the current model's class name.
-     * @param string|null $link_through_target_type The type of the link-through model that represents the target model. If not provided, it will be inferred from the target model's class name.
-     * @return ModelAttributeLinkThrough The created model attribute representing the link.
-     * @throws Exception If the target model is not a subclass of Model.
+     * @param string|class $target The model class you want to create a many-to-many relationship with
+     * @param string|null $name What to call this relationship (default: target model's name)
+     * @param bool $is_many Whether this returns multiple records (default: true)
+     * @param string|null $target_column Column in the intermediate table for the target model
+     * @param string|null $relation_table Name of the intermediate table (auto-generated if not provided)
+     * @param string|null $relation_model_column Column in the intermediate table for this model
+     * @param string|null $relation_model_type Type column for polymorphic relationships
+     * @param bool $is_inversed Whether this is the inverse side of the relationship (default: false)
+     * @return ModelAttributeLinkThrough|null The created relationship attribute
+     * @throws Exception If the target is not a valid Model class
      */
-    protected function linkThrough($target, ?String $name = null, bool $is_many = true, ?String $target_column = null, ?String $relation_table = null, ?String $relation_model_column = null, ?String $relation_model_type = null, bool $is_inversed = false): ModelAttributeLinkThrough|null
+    protected function linkThrough(
+        $target, 
+        ?String $name = null, 
+        bool $is_many = true, 
+        ?String $target_column = null, 
+        ?String $relation_table = null, 
+        ?String $relation_model_column = null, 
+        ?String $relation_model_type = null,
+        bool $is_inversed = false
+    ): ModelAttributeLinkThrough|null
     {
         if(!$this->load_relations) {
             return null; 
@@ -445,7 +581,23 @@ class Model
         $name = $name ?? $target;
         $default_value = null;
      
-        $attribute = new ModelAttributeLinkThrough($name, get_class($this), static::$bundle, $is_inversed, $is_many, $default_value, $this->table, $this->idKey, $target_column, $target, null, null, $relation_table, $relation_model_column, $relation_model_type);
+        $attribute = new ModelAttributeLinkThrough(
+            $name, 
+            get_class($this), 
+            static::$bundle, 
+            $is_inversed, 
+            $is_many, 
+            $default_value, 
+            $this->table, 
+            $this->idKey, 
+            $target_column, 
+            $target, 
+            null, 
+            null, 
+            $relation_table, 
+            $relation_model_column, 
+            $relation_model_type
+        );
 
         $this->attributes[$name] = $attribute;
         $this->objects_to_links_dict[$target] = $name;
@@ -453,15 +605,55 @@ class Model
         return $attribute;
     }
 
+    /**
+     * Creates an inverse many-to-many relationship using an intermediate table.
+     * 
+     * This is a convenience method that creates the inverse side of a many-to-many relationship.
+     * Instead of manually calling linkThrough with is_inversed=true, you can use this cleaner method.
+     *
+     * @param string|class $target The model class that links back to this one through an intermediate table
+     * @param string|null $name What to call this relationship (default: target model's name)
+     * @param bool $is_many Whether this returns multiple records (default: true)
+     * @param string|null $target_column Column in the intermediate table for the target model
+     * @param string|null $relation_table Name of the intermediate table
+     * @param string|null $relation_model_column Column in the intermediate table for this model
+     * @param string|null $relation_model_type Type column for polymorphic relationships
+     * @return ModelAttributeLinkThrough|null The created relationship attribute
+     * @throws Exception If the target is not a valid Model class
+     */
+    protected function linkedThrough(
+        $target, 
+        ?String $name = null, 
+        bool $is_many = true, 
+        ?String $target_column = null, 
+        ?String $relation_table = null, 
+        ?String $relation_model_column = null, 
+        ?String $relation_model_type = null
+    ): ModelAttributeLinkThrough|null
+    {
+        return $this->linkThrough(
+            $target, 
+            $name, 
+            $is_many, 
+            $target_column, 
+            $relation_table, 
+            $relation_model_column, 
+            $relation_model_type, 
+            true
+        );
+    }
+
     ###############################
     # Model methods
     ###############################
     /**
-     * Saves the model in the database if the attributes values are valid.
-     * The possibility to directly pass an array of attributes is kept for quicker use, but the use of checkForm($attributes_array)?->create() should be preferred when passing user inputed values
+     * Creates a new record in the database.
+     * 
+     * This saves the current model instance as a new database record.
+     * All attribute values are validated before saving.
      *
-     * @param array $attributes_array An array of attributes to be assigned to the record.
-     * @return static The created record.
+     * @param array|null $attributes_array Optional data to set before creating (use checkForm() for user input)
+     * @return static|null The created record with database ID, or null if validation failed
      */
     public function create(null|array $attributes_array = null): null|static
     {
@@ -516,19 +708,32 @@ class Model
         $params = implode(", ", $params);
         $types = implode("", $types);
 
-        $request = Database::execute("INSERT INTO $this->table ($attributes) VALUES ($params)", $types, ...$values);
+        $id = Database::execute(
+            "INSERT INTO $this->table ($attributes) VALUES ($params)", 
+            $types, 
+            ...$values
+        );
 
-        $this->id = $request;
+        $this->set($this->idKey, $id);
         $this->setIdInProperties();
         $this->is_instantiated = true;
 
         foreach($link_attributes as $link_attribute) {
-            $link_attribute->setId($this->id);
+            $link_attribute->setId($id);
         }
 
         return $this;
     }
 
+    /**
+     * Updates an existing record in the database.
+     * 
+     * This modifies the current record with new values while preserving the same ID.
+     * Only changed fields are updated, and validation is performed before saving.
+     *
+     * @param array|null $attributes_array Optional data to update (use checkForm() for user input)
+     * @return static The updated record, or the same instance if validation failed
+     */
     public function update(null|array $attributes_array = null): static
     {
         if ($attributes_array != null) {
@@ -589,44 +794,66 @@ class Model
         }
 
         //To account for the where clause of the update query
-        $values[] = $this->id;
+        $values[] = $this->getId();
         $types[] = $this->attributes[$this->idKey]->getSQLQueryType();
 
         $params = implode(", ", $params);
         $types = implode("", $types);
 
-        Database::execute("UPDATE $this->table SET $params WHERE $this->idKey = ? ", $types, ...$values);
+        Database::execute(
+            "UPDATE $this->table SET $params WHERE $this->idKey = ? ", 
+            $types, 
+            ...$values
+        );
 
         return $this;
     }
 
     /**
-     * Loads the model attributes from an array.
-     * Used to load the model attributes from a database query result or an array of attributes to avoid running unnecessary queries.
-     * As such, it is also used by the normal load method itself.
+     * Populates this model with data from an array.
+     * 
+     * This is useful when you already have data (like from a database query result)
+     * and want to create a model instance without running additional database queries.
      *
-     * @param array $attributes_array The array containing the attributes.
-     * @return void
+     * @param array $attributes_array Data to populate the model with (must include the ID field)
+     * @param bool $loadRelations Whether to also load related models (default: false)
+     * @return static This model instance with populated data
+     * @throws Exception If the array doesn't contain the model's ID field
      */
     public function loadFromArray(array $attributes_array, bool $loadRelations = false): static
     {
         if (!isset($attributes_array[$this->idKey])) {
             throw new Exception("The array does not contain the model's ID attribute");
         }
-        $this->id = $attributes_array[$this->idKey];
+        // Id is always set first to allow linked attributes to get the id
+        $this->set($this->idKey, $attributes_array[$this->idKey]);
 
+        // Initializes each attribute with the values from the array
         foreach ($this->attributes as $attribute) {
             if(!$attribute->is_link) {
                 $this->set($attribute->name, $attributes_array[$attribute->name]);
             } elseif ($loadRelations) {
-                $attribute->load($this->id);
-            } 
+                $attribute->load($this->getId());
+            } else {
+                // We initialize the link attribute with the object's id
+                $attribute->setId($this->getId());
+            }
         }
 
         $this->is_instantiated = true;
         return $this;
     }
 
+    /**
+     * Validates and processes user input before saving to the database.
+     * 
+     * This method should always be used when processing data from forms or user input.
+     * It performs validation, type conversion, and security checks before setting values.
+     *
+     * @param array $attributes_array User input data to validate and process
+     * @param bool $is_update Whether this is for updating an existing record (default: false)
+     * @return static|null This model instance if validation passed, null if validation failed
+     */
     public function checkForm(Array $attributes_array, bool $is_update = false): null|static
     {
         $attributes_array = $this->checkFormCustomPre($attributes_array);
@@ -669,7 +896,7 @@ class Model
             
             # The attribute model handles checking the value and parsing it
             if($is_update) {
-                $attribute->update($value, $this->id); # On update the attribute will retrieve and keep the old value if the is required and the new value is empty
+                $attribute->update($value, $this->getId()); # On update the attribute will retrieve and keep the old value if the is required and the new value is empty
             } else {
                 $attribute->create($value);
             }
@@ -729,20 +956,37 @@ class Model
         return $attribute;
     }
 
+    /**
+     * Removes this record from the database.
+     * 
+     * By default, this performs a "soft delete" (marks the record as deleted but keeps it in the database).
+     * Use force_delete=true to permanently remove the record from the database.
+     *
+     * @param bool $force_delete Whether to permanently delete the record (default: false for soft delete)
+     * @return bool True if the deletion was successful, false otherwise
+     */
     public function delete(bool $force_delete = false): bool
     {
         if($this->is_soft_delete && !$force_delete) {
-            $sql_query = "UPDATE $this->table SET deleted_at = ? WHERE $this->idKey = ?";
-            Database::execute($sql_query, 'si', date('Y-m-d H:i:s'), $this->id);
+            $sql_query = 
+            Database::execute(
+                "UPDATE $this->table SET deleted_at = ? WHERE $this->idKey = ?",
+                'si', 
+                date('Y-m-d H:i:s'), 
+                $this->getid()
+            );
 
             return true;
         }
 
-        $sql_query = "DELETE FROM $this->table WHERE $this->idKey = ?";
-        Database::execute($sql_query, 'i', $this->id);
+        Database::execute(
+            "DELETE FROM $this->table WHERE $this->idKey = ?",
+            'i', 
+            $this->getId()
+        );
         return true;
 
-        ///TODO: implement a delete function that deletes the row in the table and its relations
+        ///TODO: implement deletion of linked attributes
     }
 
     ###############################
@@ -773,7 +1017,7 @@ class Model
     public function set(String $attribute_name, $value, bool $update_in_db = false): static
     {
         if ($this->attributeExists($attribute_name)) {
-            $this->attributes[$attribute_name]->update($value, $this->id, $update_in_db);
+            $this->attributes[$attribute_name]->update($value, $this->getId(), $update_in_db);
         }
         return $this;
     }
@@ -785,7 +1029,9 @@ class Model
             throw new Exception("The link to the target model has not been defined");
         }
 
-        $attribute = $this->attributes[$this->objects_to_links_dict[$object_class_name]];
+        $attribute = $this->attributes[
+            $this->objects_to_links_dict[$object_class_name]
+        ];
         $attribute->add($linked_object, $update_in_db);
 
         $errors_count = 0;
@@ -841,7 +1087,7 @@ class Model
     public function setIdInProperties(): static
     {
         foreach ($this->attributes as $attribute) {
-            $attribute->setId($this->id);
+            $attribute->setId($this->getId());
         }
         return $this;
     }
@@ -855,7 +1101,7 @@ class Model
     public function fetch($attribute): static
     {
         if ($this->attributeExists($attribute)) {
-            $this->attributes[$attribute]->load($this->id);
+            $this->attributes[$attribute]->load($this->getId());
         }
         return $this;
     }
@@ -923,7 +1169,7 @@ class Model
      */
     public function getId()
     {
-        return $this->id;
+        return $this->get($this->idKey);
     }
 
     /**
@@ -1247,6 +1493,8 @@ class Model
             $column = $attribute->target_column;
             if($attribute->is_link && !$attribute->is_inversed) {
                 $column = $attribute->name;
+            } else if($attribute->is_inversed) {
+                $column = $attribute->target::getName().'s';
             }
             $attributes[$column] = $attribute->get(false);
         }
@@ -1268,10 +1516,8 @@ class Model
                 continue;
             }
 
-            if ($attribute->is_link) {
-                if($attribute->is_inversed || $attribute->is_link_through) {
-                    continue;
-                }
+            if ($attribute->is_link && ($attribute->is_inversed || $attribute->is_link_through)) {
+                continue;
             }
 
             //The id attribute is always required, but is never defined as such in the attribute definition because it would cause conflicts when creating the model (requiring the id attribute to be defined before the ressource is created in the db)
@@ -1344,7 +1590,8 @@ class Model
             }
 
             if (!$differences['success'] && !$drop_tables_if_exist) {
-                return self::updateTableFromModel($force_table_update, $regenerate_structure_file);
+                $updateResult = self::updateTableFromModel($force_table_update, $regenerate_structure_file);
+                return $updateResult['success'];
             }
 
             $db->conn->query("DROP TABLE `$table`");
@@ -1425,8 +1672,10 @@ class Model
         $model = new static();
         $model_attributes = $model->getModelFieldsInDB();
         $columns_in_db = [];
+        $db_column_details = [];
 
-        $missing_attributes = [];
+        $missing_columns = [];
+        $extra_columns = [];
         $types_mismatch = [];
         $required_mismatch = [];
 
@@ -1440,119 +1689,327 @@ class Model
             ];
         }
 
-
+        // Get all columns from the database table
         $columns = $db->conn->query("SHOW COLUMNS FROM `$table`");
         $columns = $columns->fetch_all();
 
+        // Build a map of database columns with their details
+        foreach ($columns as $column) {
+            $column_name = $column[0];
+            $columns_in_db[] = $column_name;
+            $db_column_details[$column_name] = [
+                'type' => $column[1],
+                'nullable' => $column[2], // 'YES' or 'NO'
+                'key' => $column[3],
+                'default' => $column[4],
+                'extra' => $column[5]
+            ];
+        }
+
+        // Check each model attribute against database columns
+        $model_columns = [];
         foreach ($model->attributes as $attribute) {
             if($attribute->is_link_through || $attribute->is_inversed) {
                 continue;
             }
 
-            $key = $attribute->target_column;
-            if($attribute->is_link) {
-                $key = $attribute->target_column;
-            }
+            $column_name = $attribute->target_column;
+            $model_columns[] = $column_name;
 
-            $column_name = null;
-
-            foreach ($columns as $column) {
-                if($column[0] !== $key) {
-                    continue;
-                }
-
-                $column_name = $column[0];
-                $column_type = $column[1];
-                $column_required = $column[2] === 'NO' ? true : false;
-                $columns_in_db[] = $column_name;
-
+            if (isset($db_column_details[$column_name])) {
+                // Column exists - check for type and required mismatches
+                $db_column = $db_column_details[$column_name];
                 $model_field_type = $attribute->getSQLType();
-                $model_field_required = $attribute->is_required;
-
-                if (strtolower($model_field_type) !== strtolower($column_type)) {
-                    $types_mismatch[] = $column_name . ' (' . $model_field_type . ' vs ' . $column_type . ')';
+                $db_column_type = $db_column['type'];
+                
+                // Compare types (normalize case and handle variations)
+                if (!$model->compareColumnTypes($model_field_type, $db_column_type)) {
+                    $types_mismatch[] = [
+                        'column' => $column_name,
+                        'attribute_name' => $attribute->name,
+                        'expected_type' => $model_field_type,
+                        'actual_type' => $db_column_type
+                    ];
                 }
 
-                if ($model_field_required !== $column_required && !$attribute->name === $model->idKey) {
-                    $required_mismatch[] = $column_name;
+                // Check required/nullable mismatch (skip ID field as it has special handling)
+                if ($attribute->name !== $model->idKey) {
+                    $model_required = $attribute->is_required;
+                    $db_nullable = ($db_column['nullable'] === 'YES');
+                    
+                    // Required field should not be nullable, optional field can be nullable
+                    if ($model_required && $db_nullable) {
+                        $required_mismatch[] = [
+                            'column' => $column_name,
+                            'attribute_name' => $attribute->name,
+                            'expected_required' => true,
+                            'actual_nullable' => true
+                        ];
+                    }
                 }
-            }
-
-            if ($column_name === null) {
-                $model_attributes[] = $key;
+            } else {
+                // Column doesn't exist in database
+                $missing_columns[] = [
+                    'column' => $column_name,
+                    'attribute_name' => $attribute->name,
+                    'sql_definition' => $attribute->getSQLField()
+                ];
             }
         }
 
-        $missing_columns = array_diff(array_keys($model_attributes), $columns_in_db);
-        $success = empty($missing_attributes) && empty($types_mismatch) && empty($required_mismatch) && empty($missing_columns);
+        // Check for extra columns in database that don't exist in model
+        foreach ($columns_in_db as $db_column) {
+            if (!in_array($db_column, $model_columns)) {
+                $extra_columns[] = $db_column;
+            }
+        }
 
-        $result = [
-            // 'model_fields' => array_keys($model_attributes),
-            // 'table_columns' => $columns_in_db,
+        $success = empty($missing_columns) && empty($extra_columns) && empty($types_mismatch) && empty($required_mismatch);
+
+        return [
             'success' => $success,
             'table_exists' => true,
             'missing_columns_in_db' => $missing_columns,
-            'extra_columns_in_db' => $missing_attributes,
+            'extra_columns_in_db' => $extra_columns,
             'types_mismatch' => $types_mismatch,
-            'required_mismatch' => $required_mismatch
+            'required_mismatch' => $required_mismatch,
+            'model_attributes' => $model_attributes,
+            'db_columns' => $db_column_details
         ];
-
-        return $result;
     }
 
-    ###TODO: make this work...maybe
-    public static function updateTableFromModel(bool $force_table_update = false, bool $regenerate_structure_file = true): bool
+    /**
+     * Compares model column type with database column type
+     * Handles MySQL type variations and normalization
+     *
+     * @param string $modelType The expected type from the model
+     * @param string $dbType The actual type from the database
+     * @return bool True if types are compatible, false otherwise
+     */
+    private function compareColumnTypes(string $modelType, string $dbType): bool
+    {
+        // Normalize both types to lowercase for comparison
+        $modelType = strtolower(trim($modelType));
+        $dbType = strtolower(trim($dbType));
+
+        // Direct match
+        if ($modelType === $dbType) {
+            return true;
+        }
+
+        // Handle common MySQL type variations
+        $typeMap = [
+            'varchar(255)' => ['varchar(255)', 'text'],
+            'text' => ['text', 'varchar(255)', 'longtext', 'mediumtext'],
+            'int' => ['int', 'int(11)', 'integer', 'bigint', 'bigint(20)'],
+            'tinyint(1)' => ['tinyint(1)', 'boolean', 'bool'],
+            'datetime' => ['datetime', 'timestamp'],
+            'date' => ['date'],
+            'float' => ['float', 'double', 'decimal'],
+            'char(36)' => ['char(36)', 'varchar(36)'] // For UUIDs
+        ];
+
+        // Check if the model type has compatible variations
+        foreach ($typeMap as $baseType => $variations) {
+            if (in_array($modelType, $variations) && in_array($dbType, $variations)) {
+                return true;
+            }
+        }
+
+        // Handle parameterized types (extract base type)
+        $modelBaseType = preg_replace('/\([^)]*\)/', '', $modelType);
+        $dbBaseType = preg_replace('/\([^)]*\)/', '', $dbType);
+
+        if ($modelBaseType === $dbBaseType) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Updates the database table structure to match the model definition
+     * 
+     * @param bool $force_table_update Whether to force updates that might cause data loss
+     * @param bool $regenerate_structure_file Whether to regenerate the database structure file
+     * @param bool $dry_run Whether to only simulate the changes without executing them
+     * @return array Results of the update operation
+     * @throws Exception If the table doesn't exist or if critical errors occur
+     */
+    public static function updateTableFromModel(bool $force_table_update = false, bool $regenerate_structure_file = true, bool $dry_run = false): array
     {
         $db = new Database();
         $model = new static();
         $table = $model->getModelTable();
+        $model_fields = $model->getModelFieldsInDB();
+        
+        // Check what needs to be updated
         $differences = self::checkModelDBAdequation();
-
-        //Adding missing columns and removing extra columns
-        $sql = "ALTER TABLE `$table` ";
-        foreach ($differences['missing_columns_in_db'] as $column) {
-            $sql .= "ADD COLUMN " . $model->getModelFieldsInDB()[$column]['sql_query'] . ', ';
+        
+        if (!$differences['table_exists']) {
+            throw new Exception("Table '$table' does not exist. Use generateTableForModel() to create it first.");
         }
-        foreach ($differences['extra_columns_in_db'] as $column) {
-            $sql .= "DROP COLUMN `$column`, ";
-        }
-        $sql = rtrim($sql, ', ');
-        $db->conn->query($sql);
 
-        //Fixing type and required mismatches is more touchy and requires to drop and recreate the column when the type is not compatible
-        foreach ($differences['types_mismatch'] as $column) {
-            $success = false;
-            try {
-                $db->conn->query("ALTER TABLE `$table` MODIFY COLUMN " . $model->getModelFieldsInDB()[$column]['sql_query']);
-                $success = true;
-            } catch (Exception $e) {
-                $success = false;
+        if ($differences['success']) {
+            return [
+                'success' => true,
+                'message' => 'Table is already up to date',
+                'changes_made' => [],
+                'warnings' => []
+            ];
+        }
+
+        $changes_made = [];
+        $warnings = [];
+        $sql_statements = [];
+        
+        // Start transaction for atomic operations
+        if (!$dry_run) {
+            $db->conn->begin_transaction();
+        }
+
+        try {
+            // 1. Add missing columns
+            foreach ($differences['missing_columns_in_db'] as $missing_column) {
+                $column_name = $missing_column['column'];
+                $attribute_name = $missing_column['attribute_name'];
+                $sql_definition = $missing_column['sql_definition'];
+                
+                $sql = "ALTER TABLE `$table` ADD COLUMN $sql_definition";
+                $sql_statements[] = $sql;
+                
+                if (!$dry_run) {
+                    $result = $db->conn->query($sql);
+                    if (!$result) {
+                        throw new Exception("Failed to add column '$column_name': " . $db->conn->error);
+                    }
+                }
+                
+                $changes_made[] = "Added column '$column_name' ($attribute_name)";
             }
 
-            if (!$success && $force_table_update) {
-                $db->conn->query("ALTER TABLE `$table` DROP COLUMN `$column`, ADD COLUMN " . $model->getModelFieldsInDB()[$column]['sql_query']);
+            // 2. Remove extra columns (only if force_table_update is true)
+            foreach ($differences['extra_columns_in_db'] as $extra_column) {
+                if ($force_table_update) {
+                    $sql = "ALTER TABLE `$table` DROP COLUMN `$extra_column`";
+                    $sql_statements[] = $sql;
+                    
+                    if (!$dry_run) {
+                        $result = $db->conn->query($sql);
+                        if (!$result) {
+                            throw new Exception("Failed to drop column '$extra_column': " . $db->conn->error);
+                        }
+                    }
+                    
+                    $changes_made[] = "Dropped extra column '$extra_column'";
+                } else {
+                    $warnings[] = "Extra column '$extra_column' exists in database but not in model. Use force_table_update=true to remove it.";
+                }
             }
-        }
 
-        foreach ($differences['required_mismatch'] as $column) {
-            $success = false;
-            try {
-                $db->conn->query("ALTER TABLE `$table` MODIFY COLUMN " . $model->getModelFieldsInDB()[$column]['sql_query']);
-                $success = true;
-            } catch (Exception $e) {
-                $success = false;
+            // 3. Fix type mismatches
+            foreach ($differences['types_mismatch'] as $type_mismatch) {
+                $column_name = $type_mismatch['column'];
+                $attribute_name = $type_mismatch['attribute_name'];
+                $expected_type = $type_mismatch['expected_type'];
+                $actual_type = $type_mismatch['actual_type'];
+                
+                if (!isset($model_fields[$attribute_name])) {
+                    $warnings[] = "Cannot find model field definition for attribute '$attribute_name'";
+                    continue;
+                }
+                
+                $sql_definition = $model_fields[$attribute_name]['sql_query'];
+                $sql = "ALTER TABLE `$table` MODIFY COLUMN $sql_definition";
+                
+                try {
+                    if (!$dry_run) {
+                        $result = $db->conn->query($sql);
+                        if (!$result) {
+                            throw new Exception("MODIFY failed: " . $db->conn->error);
+                        }
+                    }
+                    $sql_statements[] = $sql;
+                    $changes_made[] = "Modified column '$column_name' type from '$actual_type' to '$expected_type'";
+                    
+                } catch (Exception $e) {
+                    if ($force_table_update) {
+                        // Try drop and recreate approach
+                        $drop_sql = "ALTER TABLE `$table` DROP COLUMN `$column_name`";
+                        $add_sql = "ALTER TABLE `$table` ADD COLUMN $sql_definition";
+                        
+                        if (!$dry_run) {
+                            $db->conn->query($drop_sql);
+                            $result = $db->conn->query($add_sql);
+                            if (!$result) {
+                                throw new Exception("Failed to recreate column '$column_name': " . $db->conn->error);
+                            }
+                        }
+                        
+                        $sql_statements[] = $drop_sql;
+                        $sql_statements[] = $add_sql;
+                        $changes_made[] = "Recreated column '$column_name' (data lost) - type changed from '$actual_type' to '$expected_type'";
+                        $warnings[] = "Data in column '$column_name' was lost during type change";
+                    } else {
+                        $warnings[] = "Cannot change column '$column_name' type from '$actual_type' to '$expected_type' without data loss. Use force_table_update=true to allow this.";
+                    }
+                }
             }
 
-            if (!$success && $force_table_update) {
-                $db->conn->query("ALTER TABLE `$table` DROP COLUMN `$column`, ADD COLUMN " . $model->getModelFieldsInDB()[$column]['sql_query']);
+            // 4. Fix required/nullable mismatches
+            foreach ($differences['required_mismatch'] as $required_mismatch) {
+                $column_name = $required_mismatch['column'];
+                $attribute_name = $required_mismatch['attribute_name'];
+                
+                if (!isset($model_fields[$attribute_name])) {
+                    $warnings[] = "Cannot find model field definition for attribute '$attribute_name'";
+                    continue;
+                }
+                
+                $sql_definition = $model_fields[$attribute_name]['sql_query'];
+                $sql = "ALTER TABLE `$table` MODIFY COLUMN $sql_definition";
+                
+                try {
+                    if (!$dry_run) {
+                        $result = $db->conn->query($sql);
+                        if (!$result) {
+                            throw new Exception("Failed to modify column requirements: " . $db->conn->error);
+                        }
+                    }
+                    $sql_statements[] = $sql;
+                    $changes_made[] = "Modified column '$column_name' to be required";
+                    
+                } catch (Exception $e) {
+                    $warnings[] = "Cannot make column '$column_name' required - it may contain NULL values. Clean data first.";
+                }
             }
+
+            // Commit transaction
+            if (!$dry_run) {
+                $db->conn->commit();
+                
+                // Regenerate structure file if requested
+                if ($regenerate_structure_file) {
+                    $db->exportDatabase();
+                }
+            }
+
+            return [
+                'success' => true,
+                'message' => $dry_run ? 'Dry run completed successfully' : 'Table updated successfully',
+                'changes_made' => $changes_made,
+                'warnings' => $warnings,
+                'sql_statements' => $sql_statements,
+                'dry_run' => $dry_run
+            ];
+
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            if (!$dry_run) {
+                $db->conn->rollback();
+            }
+            
+            throw new Exception("Failed to update table '$table': " . $e->getMessage());
         }
-
-
-        if ($regenerate_structure_file) {
-            $db->exportDatabase();
-        }
-
-        return true;
     }
 }
