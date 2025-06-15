@@ -66,6 +66,7 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
 
         $this->value = [];
 
+        // Handle model table
         $this->model = $model;
         $this->model_table = $model_table ?? $this->makeRelationTableName();
         $this->model_id_key = $model_id_key;
@@ -78,13 +79,13 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
             $model_name = $model::getName();
         }
 
+        // Handle target table
         if($target != null) {
             $target_model = new $target(false);
             $this->target = $target;
             $this->target_table = $target_model->table;
             $this->target_id_key = $target_model->getIdKey();
             $this->target_id_type = $target_model->idType;
-            $this->target_column = $target_column ?? $target_name . '_id';     
         } else {
             if($target_table == null) {
                 throw new Exception("You need to provide at least a target object or a target table for the link attribute.");
@@ -93,17 +94,21 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
             $this->target_table = $target_table;
             $this->target_id_key = $target_id_key ?? 'id';
             $this->target_id_type = AttributeType::ID;
-            $this->target_column = $target_column;
         }
 
+        // Handle pivot table
         $this->relation_table = $relation_table ?? $this->makeRelationTableName('relation', $is_many);
-
-        if($is_many) {
+        
+        if($is_many && !$this->is_inversed) {
             $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
             $this->relation_model_column = $relation_model_column ?? $target_name . 'able_id';
+            $this->target_column = $target_column ?? $target_name . '_id';     
+        } else if ($this->is_inversed) {
+            $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
+            $this->relation_model_column = $relation_model_column ?? $target_name . '_id';
+            $this->target_column = $target_column ?? $target_name . 'able_id';     
         } else {
-            $this->relation_model_type = $relation_model_type;
-            $this->relation_model_column = $relation_model_column ?? $model_name . '_id';
+            $this->target_column = $target_column ?? $target_name . '_id';
         }
                 
         return $this;
@@ -149,7 +154,6 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
      * @see parseValue() for individual value parsing logic
      */
     protected function setAttributeValue($attribute_value, bool $is_creation = false): static {
-        $this->value = [];
         if($attribute_value === null || $attribute_value === []) {
             return $this;
         }
@@ -184,6 +188,7 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         }
         return $this;
     }
+
     /**
      * Updates the link-through relationship data in the database.
      *
@@ -211,22 +216,52 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         $found_relations = $this->findRelations();
         
         $list_of_ids = array_map(fn($item) => $item[$this->target_column], $found_relations);
+
+        // Sets the value of each item in the value array to the target ID
         foreach($this->value as $target_id => $item) {
             if(!in_array($target_id, $list_of_ids)) {
-                if($this->relation_model_type == null) {
-                    Database::execute("INSERT INTO $this->relation_table ($this->relation_model_column, $this->target_column) VALUES (?, ?)", "ss", $this->object_id, $target_id);
-                } else {
-                    Database::execute("INSERT INTO $this->relation_table ($this->relation_model_column, $this->target_column, $this->relation_model_type) VALUES (?, ?, ?)", "sss", $this->object_id, $target_id, $this->model::getName());
+                $columns = "$this->relation_model_column, $this->target_column";
+                $placeholders = "?, ?";
+                $types = "ss";
+                $values = [$this->object_id, $target_id];
+
+                if($this->relation_model_type != null) {
+                    $columns .= ", $this->relation_model_type";
+                    $placeholders .= ", ?";
+                    $types .= "s";
+
+                    $model = $this->is_inversed ? $this->target : $this->model;
+                    $values[] = $model::getName();
                 }
+
+                Database::execute(
+                    "INSERT INTO $this->relation_table ($columns) VALUES ($placeholders)", 
+                    $types, 
+                    ...$values
+                );
             } else {
                 $list_of_ids = array_diff($list_of_ids, [$target_id]);
             }
         }
+
+        // Deletes the items that are not linked anymore
         foreach($list_of_ids as $item) {
             if($this->relation_model_type == null) {
-                Database::execute("DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ?", "ss", $this->object_id, $item); 
+                Database::execute(
+                    "DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ?",
+                    "ss", 
+                    $this->object_id, 
+                    $item
+                ); 
             } else {
-                Database::execute("DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ? AND $this->relation_model_type = ?", "sss", $this->object_id, $item, $this->model::getName());
+                $model = $this->is_inversed ? $this->target : $this->model;
+                Database::execute(
+                    "DELETE FROM $this->relation_table WHERE $this->relation_model_column = ? AND $this->target_column = ? AND $this->relation_model_type = ?", 
+                    "sss", 
+                    $this->object_id, 
+                    $item, 
+                    $model::getName()
+                );
             }
         }
         
@@ -248,19 +283,26 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
      * @see Query::from() for building the target data query
      */
     protected function fetchAttributeValue() {
+        // Finds existing relationships in the junction table
         $found_relations = $this->findRelations();
         if(count($found_relations) == 0) {
             return null;
         }
         
+        // Extracts the target IDs from the found relationships
         $list_of_ids = array_map(fn($item) => $item[$this->target_column], $found_relations);
         
-        $found_values = Query::from($this->target_table)->whereIn($this->target_id_key, $list_of_ids)->fetch();
+        // Query the target table to find the actual linked records
+        $found_values = (
+            Query::from($this->target_table)
+            ->whereIn($this->target_id_key, $list_of_ids)
+            ->fetch()
+        );
         
+        // Sanitize the return
         if(count($found_values) == 0) {
             return null;
         }
-        
         return $found_values;
     }
 
@@ -275,10 +317,20 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
      * @see Query::from() for building the database query
      */
     protected function findRelations() {
-        $relation_query = Query::from($this->relation_table)->get($this->target_column)->where($this->relation_model_column, $this->object_id);
+        // Query the link table to find existing relationships
+        $relation_query = (
+            Query::from($this->relation_table)
+            ->get($this->target_column)
+            ->where($this->relation_model_column, $this->object_id)
+        );
+
+        // Adds the target type if it is a polymorphic relationship
         if($this->relation_model_type != null) {
-            $relation_query->where($this->relation_model_type, $this->model::getName());
+            $model = $this->is_inversed ? $this->target : $this->model;
+            $relation_query->where($this->relation_model_type, $model::getName());
         }
+
+        // Execute the query and fetch the results
         return $relation_query->fetch();
     }
 

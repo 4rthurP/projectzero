@@ -168,6 +168,14 @@ abstract class AbstractModelAttribute
      */
     public function update($value, $object_id = null, $update_in_db = false): static {
         $this->setId($object_id);
+
+        // Reset the value
+        $this->value = null;
+        if($this->is_inversed || $this->is_link_through) {
+            $this->value = [];
+        }
+
+        // Set the new value
         $this->setAttributeValue($value, false);
         if($update_in_db && $this->is_valid) {
             $this->updateAttributeValue();
@@ -181,12 +189,12 @@ abstract class AbstractModelAttribute
      * Appends a new relationship value to the existing collection.
      * Only available for link and link-through attributes.
      *
-     * @param mixed $value The relationship value to add
+     * @param Model $value The target resource to add to the relationship.
      * @param bool $update_in_db Whether to persist changes to database (default: false)
      * @return static Returns the current instance for method chaining
      * @throws Exception If the attribute is not a link attribute
      */    
-    public function add($value, bool $update_in_db = false): static {
+    public function add(Model $value, bool $update_in_db = false): static {
         if(!$this->is_link) {
             throw new Exception("This method is only available for link attributes.");
         }
@@ -205,20 +213,31 @@ abstract class AbstractModelAttribute
      * clears the entire relationship. For inversed relationships, removes only
      * the specified target from the collection.
      *
-     * @param int $target_id The ID of the target object to remove
+     * @param Model value The target ressource to remove from the relationship.
      * @param bool $update_in_db Whether to persist changes to database (default: false)
      * @return static Returns the current instance for method chaining
      * @throws Exception If the attribute is not a link attribute
      */
-    public function unset($target_id, bool $update_in_db = false): static {
+    public function remove(Model $value, bool $update_in_db = false): static {
         if(!$this->is_link) {
             throw new Exception("This method is only available for link attributes.");
         }
-        if($this->is_inversed) {
+
+        if($this->is_inversed || $this->is_link_through) {
+            $target_id = $value->getId();
+            if(!isset($this->value[$target_id])) {
+                Log::debug("ho");
+                Log::debug(print_r($this->value));
+                Log::debug("ho");
+                $this->messages[] = ['error', 'attribute-remove-target-not-found', "Target ID $target_id not found in attribute {$this->name}."];
+                $this->is_valid = false;
+                return $this;
+            } 
             unset($this->value[$target_id]);
         } else {
             $this->value = null;
         }
+        
         if($update_in_db && $this->is_valid) {
             $this->updateAttributeValue();
         }

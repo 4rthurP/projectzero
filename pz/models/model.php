@@ -1057,7 +1057,7 @@ class Model
         }
 
         $attribute = $this->attributes[$this->objects_to_links_dict[$object_class_name]];
-        $attribute->unset($linked_object, $update_in_db);
+        $attribute->remove($linked_object, $update_in_db);
 
         $errors_count = 0;
         $this->messages[$attribute->name] = $attribute->messages;
@@ -1494,7 +1494,8 @@ class Model
             if($attribute->is_link && !$attribute->is_inversed) {
                 $column = $attribute->name;
             } else if($attribute->is_inversed) {
-                $column = $attribute->target::getName().'s';
+                $name = $attribute->target::getName();
+                $column = str_ends_with($name, 's') ? $name : $name . 's';
             }
             $attributes[$column] = $attribute->get(false);
         }
@@ -1576,80 +1577,105 @@ class Model
         $db = new Database();
         $model = new static();
         $table = $model->getModelTable();
+        $create_table = true;
 
+        // Look for the model table in the database and check if it needs to be created or updated
         $result = $db->conn->query("SHOW TABLES LIKE '$table'");
         $tableExists = $result->num_rows > 0;
         if ($tableExists && !$update_table_if_exist) {
-            return false;
-        }
-
-        if ($tableExists) {
+            $create_table = false;
+            Log::debug("The table " . $table . " for the " . $model::getName() ." model already exists in the database. Skipping table creation.");
+        } else if ($tableExists) {
+            Log::debug("Updating the table " . $table . " for the " . $model::getName() ." model.");
+            
             $differences = self::checkModelDBAdequation();
             if ($differences['success']) {
-                return true;
-            }
-
-            if (!$differences['success'] && !$drop_tables_if_exist) {
+                $create_table = false;
+                Log::debug("The table " . $table . " for the " . $model::getName() ." model is already up to date. Skipping table update.");
+            } else if (!$differences['success'] && !$drop_tables_if_exist) {
+                $create_table = false;
+                Log::debug("Found differences in the table " . $table . " structure for the " . $model::getName() ." model. Proceeding with the update.");
                 $updateResult = self::updateTableFromModel($force_table_update, $regenerate_structure_file);
-                return $updateResult['success'];
+                Log::debug("Update result for " . $table . " :" . print_r($updateResult['success'], true));
+            } else {
+                Log::debug("Found differences in the table " . $table . " structure for the " . $model::getName() ." model. Dropping table to recreate it.");
+                $db->conn->query("DROP TABLE `$table`");
             }
-
-            $db->conn->query("DROP TABLE `$table`");
         }
 
-        $model_fields = $model->getModelFieldsInDB();
-        $model_id = $model->getIdKey();
+        // Create the model table
+        if($create_table) {
+            $model_fields = $model->getModelFieldsInDB();
+            $model_id = $model->getIdKey();
+    
+            $sql = "CREATE TABLE `$table` (";
+            //Putting the id key first
+            $sql .= $model_fields[$model_id]['sql_query'] . ', ';
+    
+            foreach ($model_fields as $key => $field) {
+                if ($key == $model_id) {
+                    continue;
+                }
+                $sql .= $field['sql_query'] . ', ';
+            }
+            $sql = substr($sql, 0, -2);
+            $sql .= ")";
+    
+            $db->conn->query($sql);
+        }
 
-        $sql = "CREATE TABLE `$table` (";
-        //Putting the id key first
-        $sql .= $model_fields[$model_id]['sql_query'] . ', ';
-
-        foreach ($model_fields as $key => $field) {
-            if ($key == $model_id) {
+        // Look for link through attributes that need a table created
+        foreach ($model->attributes as $attribute) {
+            if (!$attribute->is_link_through) {
+                // If the attribute is not a link through, we do not need to create a table for it
                 continue;
             }
-            $sql .= $field['sql_query'] . ', ';
-        }
-        $sql = substr($sql, 0, -2);
-        $sql .= ")";
 
-        $db->conn->query($sql);
-
-        foreach ($model->attributes as $attribute) {
-            if ($attribute->is_link_through) {
-                $result = $db->conn->query("SHOW TABLES LIKE '$attribute->relation_table'");
-                if ($result->num_rows > 0) {
-                    $db->conn->query("DROP TABLE `$attribute->relation_table`");
-                }                
-
-                $sql = "CREATE TABLE `$attribute->relation_table` (";
-                //Putting the id key first
-                if ($model->idType === AttributeType::ID) {
-                    $sql .= $attribute->relation_model_column . ' INT NOT NULL, ';
-                } else {
-                    $sql .= $attribute->relation_model_column . ' CHAR(36) NOT NULL, ';
+            Log::debug("Found link through attribute " . $attribute->name . " for model " . $model::getName());
+            $result = $db->conn->query("SHOW TABLES LIKE '$attribute->relation_table'");
+            if ($result->num_rows > 0) {
+                if(!$drop_tables_if_exist) {
+                    // If the table already exists and we do not want to drop it, we skip the creation
+                    Log::debug("The relation table " . $attribute->relation_table . " for the " . $model::getName() ." model already exists in the database. Skipping table creation.");
+                    continue;
                 }
 
-                if ($attribute->target_id_type === AttributeType::ID) {
-                    $sql .= $attribute->target_column . ' INT NOT NULL, ';
-                } else {
-                    $sql .= $attribute->target_column . ' CHAR(36) NOT NULL, ';
-                }
-
-                if ($attribute->relation_model_type !== null) {
-                    $sql .= $attribute->relation_model_type . ' char(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL, ';
-                }
-
-                $sql = substr($sql, 0, -2);
-                $sql .= ")";
-
-                $db->conn->query($sql);
+                // We drop the table to recreate it
+                Log::debug("The relation table " . $attribute->relation_table . " for the " . $model::getName() ." model already exists in the database. Dropping table to recreate it.");
+                $db->conn->query("DROP TABLE `$attribute->relation_table`");
+            }                
+            
+            // Create the relation table for the link through attribute
+            Log::debug("Creating relation table " . $attribute->relation_table . " for the " . $model::getName() ." model.");
+            $sql = "CREATE TABLE `$attribute->relation_table` (";
+            //Putting the id key first
+            if ($model->idType === AttributeType::ID) {
+                $sql .= $attribute->relation_model_column . ' INT NOT NULL, ';
+            } else {
+                $sql .= $attribute->relation_model_column . ' CHAR(36) NOT NULL, ';
             }
+
+            if ($attribute->target_id_type === AttributeType::ID) {
+                $sql .= $attribute->target_column . ' INT NOT NULL, ';
+            } else {
+                $sql .= $attribute->target_column . ' CHAR(36) NOT NULL, ';
+            }
+
+            if ($attribute->relation_model_type !== null) {
+                $sql .= $attribute->relation_model_type . ' char(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL, ';
+            }
+
+            $sql = substr($sql, 0, -2);
+            $sql .= ")";
+
+            $db->conn->query($sql);
         }
 
         if ($regenerate_structure_file) {
             $db->exportDatabase();
         }
+
+        Log::debug("The model " . $model::getName() . " table has been successfully generated in the database.");
 
         return true;
     }
