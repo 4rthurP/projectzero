@@ -99,16 +99,20 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         // Handle pivot table
         $this->relation_table = $relation_table ?? $this->makeRelationTableName('relation', $is_many);
         
-        if($is_many && !$this->is_inversed) {
-            $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
-            $this->relation_model_column = $relation_model_column ?? $target_name . 'able_id';
-            $this->target_column = $target_column ?? $target_name . '_id';     
-        } else if ($this->is_inversed) {
+        if ($this->is_inversed) {
             $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
             $this->relation_model_column = $relation_model_column ?? $target_name . '_id';
             $this->target_column = $target_column ?? $target_name . 'able_id';     
-        } else {
+        } 
+        else if($is_many) {
+            $this->relation_model_type = $relation_model_type ?? $target_name . 'able_type';
+            $this->relation_model_column = $relation_model_column ?? $target_name . 'able_id';
+            $this->target_column = $target_column ?? $target_name . '_id';     
+        }  
+        else {
             $this->target_column = $target_column ?? $target_name . '_id';
+            $this->relation_model_type = $relation_model_type;
+            $this->relation_model_column = $relation_model_column ?? $model_name . '_id';
         }
                 
         return $this;
