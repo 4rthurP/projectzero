@@ -141,9 +141,9 @@ class Route
             // Set the redirect location based on the response
             if ($this->response->isSuccessful()) {
                 if ($this->request->hasData('from')) {
-                    $this->response->setRedirect($this->request->getData('from'));
+                    $this->response->setRedirect($this->request->data('from'));
                 } else if ($this->request->hasData('redirect_to')) {
-                    $this->response->setRedirect($this->request->getData('redirect_to'));
+                    $this->response->setRedirect($this->request->data('redirect_to'));
                 } else if (!$this->response->hasRedirect() && $this->success_location != null) {
                     $this->response->setRedirect($this->success_location);
                 }

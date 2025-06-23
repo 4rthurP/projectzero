@@ -2,15 +2,15 @@
 
 namespace pz\Routing;
 
-use DateTime;
 use pz\Enums\Routing\Method;
-use pz\Models\User;
 use pz\Auth;
 use pz\Log;
-use function PHPUnit\Framework\isInstanceOf;
+use pz\Routing\DataHandler;
 
 class Request
 {
+    use DataHandler;
+    
     protected ?String $action;
     protected ?String $success_location;
     protected ?String $error_location;
@@ -127,102 +127,6 @@ class Request
     public function hasNonce()
     {
         return $this->auth->getNonce() !== null;
-    }
-
-
-    #####################################
-    # Request Data
-    #####################################
-
-    /**
-     * Retrieves the data associated with the current request.
-     *
-     * @return mixed The data of the request.
-     */
-    public function data()
-    {
-        return $this->data;
-    }
-
-    /**
-     * Sets the data for the request, optionally extracting and storing a nonce value.
-     *
-     * This method updates the internal data array by merging the provided data
-     * with the existing data. If the provided data contains a 'nonce' key, its
-     * value is stored separately in the `$nonce` property, and the key is removed
-     * from the data array before merging.
-     *
-     * @param array $data An associative array of data to set. If it contains a 'nonce'
-     *                    key, the value will be extracted and stored in the `$nonce`
-     *                    property, and the key will be removed from the array.
-     */
-    public function setData(array $data)
-    {
-        # The nonce is not stored in the data array for security reasons
-        if (isset($data['nonce'])) {
-            unset($data['nonce']);
-        }
-
-        # Merge the new data with the existing data
-        $this->data = array_merge($this->data, $data);
-    }
-
-    /**
-     * Adds a key-value pair to the request data.
-     *
-     * @param string $key The key to associate with the value.
-     * @param mixed $value The value to store.
-     * @return static Returns the current instance for method chaining.
-     */
-    public function addData(String $key, $value): static
-    {
-        $this->data[$key] = $value;
-        return $this;
-    }
-
-    /**
-     * Retrieves the value associated with the specified key from the request data.
-     *
-     * @param string $key The key to look for in the request data.
-     * @return mixed|null The value associated with the key, or null if the key does not exist.
-     */
-    public function getData(String $key)
-    {
-        if (!isset($this->data[$key])) {
-            return null;
-        }
-        return $this->data[$key];
-    }
-
-    /**
-     * Checks if the specified key exists in the data array and is not an empty string.
-     *
-     * @param string $key The key to check in the data array.
-     * @return bool Returns true if the key exists and its value is not an empty string, otherwise false.
-     */
-    public function hasData(String $key): bool
-    {
-        if (!isset($this->data[$key])) {
-            return false;
-        }
-        return $this->data[$key] != '';
-    }
-
-    /**
-     * Checks if a specific key exists in the data. If the key does not exist, 
-     * it sets the key with the provided value. Returns the current instance 
-     * for method chaining.
-     *
-     * @param string $key The key to check or set in the data.
-     * @param mixed $value The value to set if the key does not exist.
-     * @return static Returns the current instance for method chaining.
-     */
-    public function hasOrSetData(String $key, $value): static
-    {
-        if (!$this->hasData($key)) {
-            $this->addData($key, $value);
-        }
-        return $this;
     }
 
     /**

@@ -73,8 +73,8 @@ final class requestTest extends TestCase
         $this->assertTrue($request->hasData('key1'));
         $this->assertFalse($request->hasData('non_existent_key'));
         $this->assertSame($action, $request->getAction());
-        $this->assertSame($data['key1'], $request->getData('key1'));
-        $this->assertNull($request->getData('non_existent_key'));
+        $this->assertSame($data['key1'], $request->data('key1'));
+        $this->assertNull($request->data('non_existent_key'));
         $this->assertNull($request->successLocation());
         $this->assertNull($request->errorLocation());
     }
@@ -84,9 +84,9 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
         $request->setData(['key2' => 'value2', 'key3' => 'value3']);
 
-        $this->assertSame('value1', $request->getData('key1'));
-        $this->assertSame('value2', $request->getData('key2'));
-        $this->assertSame('value3', $request->getData('key3'));
+        $this->assertSame('value1', $request->data('key1'));
+        $this->assertSame('value2', $request->data('key2'));
+        $this->assertSame('value3', $request->data('key3'));
     }
 
     public function testSetDataOverwritesExistingData(): void
@@ -94,7 +94,7 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
         $request->setData(['key1' => 'newValue']);
 
-        $this->assertSame('newValue', $request->getData('key1'));
+        $this->assertSame('newValue', $request->data('key1'));
     }
 
     public function testAddDataAddsNewData(): void
@@ -102,7 +102,7 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, ['key0' => 'value0'], 'testAction');
         $request->addData('key1', 'value1');
 
-        $this->assertSame('value1', $request->getData('key1'));
+        $this->assertSame('value1', $request->data('key1'));
     }
 
     public function testAddDataOverwritesExistingData(): void
@@ -110,14 +110,14 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
         $request->addData('key1', 'newValue');
 
-        $this->assertSame('newValue', $request->getData('key1'));
+        $this->assertSame('newValue', $request->data('key1'));
     }
 
     public function testGetDataReturnsNullForNonExistentKey(): void
     {
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
 
-        $this->assertNull($request->getData('non_existent_key'));
+        $this->assertNull($request->data('non_existent_key'));
     }
 
     public function testHasDataReturnsTrueForExistingKey(): void
@@ -146,7 +146,7 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, [], 'testAction');
         $request->hasOrSetData('key1', 'value1');
 
-        $this->assertSame('value1', $request->getData('key1'));
+        $this->assertSame('value1', $request->data('key1'));
     }
 
     public function testHasOrSetDataDoesNotSetDataIfExists(): void
@@ -154,7 +154,7 @@ final class requestTest extends TestCase
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
         $request->hasOrSetData('key1', 'newValue');
 
-        $this->assertSame('value1', $request->getData('key1'));
+        $this->assertSame('value1', $request->data('key1'));
     }
 
     public function testSetActionSetsAction(): void

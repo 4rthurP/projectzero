@@ -62,14 +62,14 @@ class UserController extends ModelController
 
     public function get_nonce(Request $request): Response {
         $auth = new Auth($request->data());
-        $auth->retrieveSession($request->getData('credential'));
+        $auth->retrieveSession($request->data('credential'));
         
         if(!$auth->isLoggedIn()) {
             return new Response(
                 false,
                 ResponseCode::Unauthorized,
                 'Failed login attempt',
-                data: ['credential' => $request->getData('credential')],
+                data: ['credential' => $request->data('credential')],
             );
         }
         

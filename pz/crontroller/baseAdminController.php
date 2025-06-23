@@ -10,7 +10,7 @@ use pz\Enums\Routing\ResponseCode;
 
 class BaseAdminController extends Controller {
     public function initialize_database(Request $request): Response {
-        $model_list = $request->getData('model_list');
+        $model_list = $request->data('model_list');
         if(!$model_list) {
             return new Response(false, ResponseCode::BadRequestContent, 'No models provided.');
         }
@@ -19,7 +19,7 @@ class BaseAdminController extends Controller {
     }
 
     public function update_database(Request $request): Response {
-        $model_list = $request->getData('model_list');
+        $model_list = $request->data('model_list');
         if(!$model_list) {
             return new Response(false, ResponseCode::BadRequestContent, 'No models provided.');
         }
@@ -28,8 +28,8 @@ class BaseAdminController extends Controller {
     }
     
     public function check_database(Request $request): Response {
-        $model_list = $request->getData('models');
-        $generate_if_not_successful = $request->getData('generate_if_not_successful');
+        $model_list = $request->data('models');
+        $generate_if_not_successful = $request->data('generate_if_not_successful');
         if($model_list == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'No models provided.');
         }

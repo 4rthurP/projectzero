@@ -108,7 +108,7 @@ class ModelController extends Controller {
         $model = $loadModelResponse->data('model');
         $model->delete();
 
-        return new Response(true, ResponseCode::Ok, 'deleted-'.$model::$name.'-'.$request->getData($model->idKey));
+        return new Response(true, ResponseCode::Ok, 'deleted-'.$model::$name.'-'.$request->data($model->idKey));
     }
 
     /**
@@ -118,7 +118,7 @@ class ModelController extends Controller {
      * @return Response The response object indicating the success or failure of the operation.
      */
     public function set(Request $request): Response {        
-        $requested_attribute = $request->getData('attribute');
+        $requested_attribute = $request->data('attribute');
         if($requested_attribute == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
@@ -129,7 +129,7 @@ class ModelController extends Controller {
         }
 
         $model = $loadModelResponse->data('model');   
-        $model->set($requested_attribute, $request->getData('value'));
+        $model->set($requested_attribute, $request->data('value'));
 
         return new Response(true, ResponseCode::Ok, 'set-'.$model::$name.'-'.$requested_attribute);
     }
@@ -141,7 +141,7 @@ class ModelController extends Controller {
      * @return Response The response object containing the result of the attribute retrieval.
      */
     public function get_attribute(Request $request): Response {
-        $requested_attribute = $request->getData('attribute');
+        $requested_attribute = $request->data('attribute');
         if($requested_attribute == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
@@ -168,9 +168,9 @@ class ModelController extends Controller {
      */
     public function list(Request $request): Response
     {
-        $as_object = $request->getData('as_object') ?? true;
-        $limit = $request->getData('limit');
-        $offset = $request->getData('offset');
+        $as_object = $request->data('as_object') ?? true;
+        $limit = $request->data('limit');
+        $offset = $request->data('offset');
         
         $response_content = $this->model::list($as_object, $limit, $offset);
         
@@ -201,7 +201,7 @@ class ModelController extends Controller {
         if(!$request->hasData('right')) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-right');
         }
-        $right = $request->getData('right');
+        $right = $request->data('right');
         if($right == 'view') {
             $response_content = $model->getViewingPrivacy();
         } else if($right == 'edit') {
@@ -233,12 +233,12 @@ class ModelController extends Controller {
      * @return Response The response object containing the loaded model or an error message.
      */
     protected function loadModel(Request $request, ?string $rightToCheck = null): Response {
-        $ressource_id = $request->getData($this->modelIdKey);
+        $ressource_id = $request->data($this->modelIdKey);
         if($ressource_id == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
 
-        $load_relations = $request->getData('load_relations') ?? false;
+        $load_relations = $request->data('load_relations') ?? false;
         $load_relations = $load_relations === 'true' || $load_relations === true;
         
         $model = $this->model::find($ressource_id, $load_relations);

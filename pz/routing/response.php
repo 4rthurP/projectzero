@@ -7,18 +7,24 @@ use DateTimeZone;
 
 use pz\Config;
 use pz\Enums\Routing\ResponseCode;
+use pz\Routing\DataHandler;
 
 class Response
 {
+    use DataHandler;
+
     public bool $success;
     protected ResponseCode $code;
     protected int $http_code;
+    protected ?string $header = null;
+
     public ?string $answer;
     public ?string $message;
+    protected ?string $redirect;
+
     protected ?array $data;
     protected ?array $data_messages;
-    protected ?string $header = null;
-    protected ?string $redirect;
+
     protected ?string $nonce = null;
     protected ?string $nonce_expiration = null;
 
@@ -28,7 +34,8 @@ class Response
         ?string $answer = null, 
         ?string $redirect = null, 
         ?array $data = null, 
-        ?array $data_messages = null
+        ?array $data_messages = null,
+        ?string $message = null,
     ) {
         $this->success = $success;
         $this->code = $code;
@@ -37,7 +44,7 @@ class Response
         $this->data_messages = $data_messages;
         $this->answer = $answer;
         $this->redirect = $redirect;
-        $this->message = null;
+        $this->message = $message;
     }
 
 
@@ -108,29 +115,6 @@ class Response
     }
 
     /**
-     * Retrieves data from the response.
-     *
-     * If a key is provided, it attempts to return the value associated with that key.
-     * If no key is provided, it returns the entire data array.
-     * If the data is null, it returns null.
-     *
-     * @param string|null $key The key to retrieve from the data array (optional).
-     * @return mixed|null The value associated with the key, the entire data array, or null if no data exists.
-     */
-    public function data(?string $key = null)
-    {
-        if ($this->data === null) {
-            return [];
-        }
-
-        if ($key !== null) {
-            return $this->data[$key] ?? null;
-        }
-
-        return $this->data;
-    }
-
-    /**
      * Retrieves data messages or a specific message by key.
      *
      * @param string|null $key The key of the specific message to retrieve. If null, all data messages are returned.
@@ -148,48 +132,6 @@ class Response
         }
 
         return $this->data_messages;
-    }
-
-    /**
-     * Adds data to the response under the specified element key.
-     *
-     * @param string $element The key under which the data will be stored.
-     * @param array $data The data to be added.
-     * @return self Returns the current instance for method chaining.
-     */
-    public function addData(string $element, array $data): self
-    {
-        $this->data[$element] = $data;
-        return $this;
-    }
-
-    /**
-     * Sets the data for the response.
-     *
-     * @param array $form_data The data to be set.
-     * @return self Returns the current instance for method chaining.
-     */
-    public function setData(array $form_data): self
-    {
-        $this->data = $form_data;
-        return $this;
-    }
-
-    /**
-     * Merge the current data with new data.
-     * 
-     * @param array $data The data to merge
-     * @param bool $kee_current_data If set to true, the current data takes precent. By default (false), the new data overrides the current data
-     * @return self Returns the current instance for method chaining.
-     */
-    public function mergeData(array $data, bool $keep_current_data = false): self {
-        if($keep_current_data) {
-            $this->data = array_merge($data, $this->data ?? []);
-        } else {
-            $this->data = array_merge($this->data ?? [], $data);
-        }
-
-        return $this;
     }
 
     /**

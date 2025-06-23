@@ -22,6 +22,7 @@ class Application extends ApplicationBase {
     protected bool $auto_render = true;
 
     protected ?Request $request;
+    protected ?String $current_script = null; // The current script being executed, used to find the view or action
 
     protected ?View $current_view;
     protected ?Route $current_action;
@@ -49,72 +50,16 @@ class Application extends ApplicationBase {
             $this->checkDefinition();
         }
         
-        // Find the request params and action
-        $this->request = new Request();
-
-        $current_script = $this->sanitizePath($_SERVER['SCRIPT_NAME']);
-        $this->request->setAction($current_script);
-
-        $attributes_array = array_merge($_GET, $_POST);
-        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-            $this->request->setMethod(Method::GET);
-        } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            // Request method
-            $this->request->setMethod(Method::POST);
-        } else {
-            return new Response(false, ResponseCode::InvalidRequestMethod, 'Invalid request method '.$_SERVER['REQUEST_METHOD'], 'index.php');
+        $build_response = $this->buildRequest($request_params);
+        if($build_response !== true) {
+            // If the request could not be built, we return the response
+            // This is usually the case when the user is not authenticated or the request method is invalid
+            return $build_response;
         }
 
-        // Add the additional request params to the attributes array (params passed via the method params are prioritized)
-        if($request_params != null) {
-            $attributes_array = array_merge($attributes_array, $request_params);
-        }
-        
-        // Request data
-        $this->request->setData($attributes_array);
-        // Request action
-        if(isset($attributes_array['action'])) {
-            $this->request->setAction($attributes_array['action']);
-        }
-
-        // Eventual redirections
-        if(isset($_GET['from'])) {
-            // For forms the redirection can be given in the url param so we can not simply test the attribute array
-            $this->request->onSuccess($_GET['from']);
-        } elseif(isset($attributes_array['from'])) {
-            $this->request->onSuccess($attributes_array['from']);
-        } 
-        if(isset($attributes_array['error'])) {
-            $this->request->onError($attributes_array['error']);
-        }
-
-
-        // Handle authentication
-        if(isset($_SESSION['user']) || isset($_COOKIE['user_session_token'])){
-            $auth = new Auth($this->request->data(), $this->user_class);
-            if(isset($_SESSION['user'])) {
-                $auth->loadFromSession();
-            } else {
-                $auth->retrieveSession($_COOKIE['user_session_token']);
-            }
-
-            if($auth->isValid()) {
-                $this->user_id = $auth->getUserId();
-                $this->request->setAuth($auth);
-            } else {
-                Auth::logout();
-                return new Response(
-                    false, 
-                    ResponseCode::Unauthorized,
-                    $auth->getErrorMessage(), 
-                    '/index.php?error)' . $auth->getError(),
-                );
-            }
-        }
-
-        // Start processing the request
+        // Process the request
         try {
-            $response = $this->handleRequest($current_script);
+            $response = $this->handleRequest();
         } catch (Exception $e) {
             if(Config::env() == 'DEV') {
                 throw $e;
@@ -122,6 +67,16 @@ class Application extends ApplicationBase {
                 $response = new Response(false, ResponseCode::InternalServerError, $e->getMessage(), '/');
             }
         }
+
+        // Set the response code based on the response
+        http_response_code($response->getResponseCode()->value);
+        
+        // If the user was authenticated during the request, a new nonce was generated and we need to set it in the response
+        // This is handled by the app to avoid loosing the new nonce if the request failed for reasons other than authentication
+        if($this->request->isAuthenticated()) {
+            $response->setNonce($this->request->nonce(), $this->request->nonceExpiration());
+        }
+
         
         // When auto render is enabled we take care of redirections and view rendering
         $auto_render = $auto_render ?? $this->auto_render;
@@ -132,7 +87,7 @@ class Application extends ApplicationBase {
                 exit();
             }
             
-            // If the response is successful and we have a view to serve, we render it
+            // If we have a view to serve, we render it
             if($this->current_view != null && isset($this->view_serving) && isset($this->view_routing)) {
                 if($this->view_routing->isSuccessful() && $this->view_serving->isSuccessful()) {
                     $this->render();
@@ -152,23 +107,91 @@ class Application extends ApplicationBase {
             }
         }
         
-        # If the user was authenticated during the request, a new nonce was generated
-        # and we need to set it in the response
-        # This is handled by the app to avoid loosing the new nonce if the request failed for reasons other than authentication
-        if($this->request->isAuthenticated()) {
-            $response->setNonce($this->request->nonce(), $this->request->nonceExpiration());
-        }
-
         return $response;
     }
 
-    private function handleRequest(String $current_script): Response {
+    private function buildRequest(?Array $request_params): true | Response {
+        $this->request = new Request();
+        $this->current_script = $this->sanitizePath($_SERVER['SCRIPT_NAME']);
+        
+        // Find the request params and action
+        $attributes_array = array_merge($_GET, $_POST);
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            $this->request->setMethod(Method::GET);
+        } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // Request method
+            $this->request->setMethod(Method::POST);
+        } else {
+            return new Response(false, ResponseCode::InvalidRequestMethod, 'Invalid request method '.$_SERVER['REQUEST_METHOD'], 'index.php');
+        }
+        // Add the additional request params to the attributes array (params passed via the method params are prioritized)
+        if($request_params != null) {
+            $attributes_array = array_merge($attributes_array, $request_params);
+        }
+        $this->request->setData($attributes_array);
+
+        // Request action
+        if(isset($attributes_array['action'])) {
+            $this->request->setAction($attributes_array['action']);
+        } else {
+            $this->request->setAction($this->current_script);
+        }
+
+        // Eventual redirections
+        if(isset($_GET['from'])) {
+            // For forms the redirection can be given in the url param so we can not simply test the attribute array
+            $this->request->onSuccess($_GET['from']);
+        } elseif(isset($attributes_array['from'])) {
+            $this->request->onSuccess($attributes_array['from']);
+        } 
+        if(isset($attributes_array['error'])) {
+            $this->request->onError($attributes_array['error']);
+        }
+
+        // Check if an user token was passed in the request
+        $session_token = null;
+        if(isset($_COOKIE['user_session_token'])) {
+            $session_token = $_COOKIE['user_session_token'];
+        } else if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
+            if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
+                $session_token = $matches[1];
+                Log::info($session_token);
+            }
+        }
+        // Handle authentication
+        if(isset($_SESSION['user']) || $session_token !== null){
+            $auth = new Auth($this->request->data(), $this->user_class);
+            if(isset($_SESSION['user'])) {
+                $auth->loadFromSession();
+            } else {
+                $auth->retrieveSession($session_token);
+            }
+
+            if($auth->isValid()) {
+                $this->user_id = $auth->getUserId();
+                $this->request->setAuth($auth);
+            } else {
+                Auth::logout();
+                return new Response(
+                    false, 
+                    ResponseCode::Unauthorized,
+                    $auth->getErrorMessage(), 
+                    '/index.php?error)' . $auth->getError(),
+                );
+            }
+        }
+
+        return true;
+    }
+
+    private function handleRequest(): Response {
         $action = null;
         $view = null;
         
         // Findings if there is a view associated to this page and checking it
-        if(array_key_exists($current_script, $this->views)) {
-            $view_params = $this->views[$current_script];
+        if(array_key_exists($this->current_script, $this->views)) {
+            $view_params = $this->views[$this->current_script];
             $view = $this->buildRoute(...$view_params);
             $view->setParams($this->default_latte_params);
             $this->current_view = $view;
@@ -227,7 +250,7 @@ class Application extends ApplicationBase {
                 if($action_path != null) {
                     $message .= ' - Action path: ' . $action_path;
                 }
-                $message .= ' - Current script: ' . $current_script;
+                $message .= ' - Current script: ' . $this->current_script;
                 // In development mode, we log the error to help debugging
                 Log::error($message);
             }
