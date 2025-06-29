@@ -1,0 +1,15 @@
+- FIX model attributes tests
+- FIX: model_link does not take into account deleted elements
+- Add a unique constraint on model attributes
+- Revoir les backups MySQL et l'install pour pas force delete les tables
+- Logging
+    - Add options in env variables to set up streams ?
+    - Add script location
+- User
+    - Roles
+    - Add post-register method to execute
+- Add params to endpoints: mandatories or optionals, minimal typing
+- Then automate endpoint documentation (+ can add a desc)
+- Lazy setup of models attributes
+- Find the source of the WTF statement in routing
+- Database insert, update and delete queries methods ?
