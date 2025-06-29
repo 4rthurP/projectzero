@@ -168,13 +168,13 @@ class ModelController extends Controller {
      */
     public function list(Request $request): Response
     {
-        $as_object = $request->data('as_object') ?? true;
+        $as_object = $request->data('as_object', false);
         $limit = $request->data('limit');
         $offset = $request->data('offset');
         
         $response_content = $this->model::list($as_object, $limit, $offset);
         
-        return new Response(true, ResponseCode::Ok, 'list-'.$this->model->name, null, $response_content);
+        return new Response(true, ResponseCode::Ok, 'list-'.$this->model::$name, null, $response_content);
     }
     
     /**
@@ -186,7 +186,7 @@ class ModelController extends Controller {
     public function count(Request $request): Response
     {
         $response_content = $this->model::count();
-        return new Response(true, ResponseCode::Ok, 'count-'.$this->model->name, null, $response_content);
+        return new Response(true, ResponseCode::Ok, 'count-'.$this->model::$name, null, $response_content);
     }
 
     /**
