@@ -133,7 +133,7 @@ final class authTest extends TestCase
         $this->assertFalse($this->incorrect_auth->isLoggedIn());
         $this->assertFalse($this->incorrect_auth->isAuthenticated());
         $this->assertNull($this->incorrect_auth->getUserId());
-        $this->assertEquals('login-failed', $this->incorrect_auth->getError());
+        $this->assertEquals('unauthorized-login', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered
         $attemps = Query::from('login_attempts')

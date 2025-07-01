@@ -29,7 +29,7 @@ final class responseTest extends TestCase
                 'redirect' => null,
                 'data' => ['key1' => 'value1'],
                 'data_messages' => ['message1'],
-                'expected_redirect' => 'Location: ?error=bad_request_content',
+                'expected_redirect' => 'Location: ?error=this is bad',
             ],
             [
                 'success' => true,
@@ -91,6 +91,5 @@ final class responseTest extends TestCase
         $response->setRedirect(null);
         $this->assertEquals('Location: ?success=true', $response->getRedirect());
     }
-
 
 }

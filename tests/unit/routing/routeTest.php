@@ -173,7 +173,4 @@ final class routeTest extends TestCase
         $route->setPath('/newpath');
         $this->assertEquals('/newpath', $route->getPath());
     }
-
-
-
 }

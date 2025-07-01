@@ -66,11 +66,7 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
 
         $this->value = [];
 
-        // Handle model table
-        $this->model = $model;
-        $this->model_table = $model_table ?? $this->makeRelationTableName();
-        $this->model_id_key = $model_id_key;
-
+        // Handle the model and target names
         if($this->is_inversed) {
             $target_name = $model::getName();
             $model_name = $target::getName();
@@ -79,7 +75,7 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
             $model_name = $model::getName();
         }
 
-        // Handle target table
+        // Handle target and its table
         if($target != null) {
             $target_model = new $target(false);
             $this->target = $target;
@@ -95,7 +91,12 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
             $this->target_id_key = $target_id_key ?? 'id';
             $this->target_id_type = AttributeType::ID;
         }
-
+        
+        // Handle model table
+        $this->model = $model;
+        $this->model_table = $model_table ?? $this->makeRelationTableName();
+        $this->model_id_key = $model_id_key;
+        
         // Handle pivot table
         $this->relation_table = $relation_table ?? $this->makeRelationTableName('relation', $is_many);
         

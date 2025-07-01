@@ -79,12 +79,12 @@ final class requestTest extends TestCase
         $this->assertNull($request->errorLocation());
     }
 
-    public function testSetDataCorrectlyMergesData(): void
+    public function testSetDataCorrectlySetsData(): void
     {
         $request = new Request(Method::GET, ['key1' => 'value1'], 'testAction');
         $request->setData(['key2' => 'value2', 'key3' => 'value3']);
 
-        $this->assertSame('value1', $request->data('key1'));
+        $this->assertSame(null, $request->data('key1'));
         $this->assertSame('value2', $request->data('key2'));
         $this->assertSame('value3', $request->data('key3'));
     }

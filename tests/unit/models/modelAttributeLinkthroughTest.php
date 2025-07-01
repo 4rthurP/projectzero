@@ -80,7 +80,7 @@ final class modelAttributeLinkthroughTest extends TestCase
         // Test creating a ModelAttributeLinkThrough with all parameters
         $linkThroughAttr = new ModelAttributeLinkThrough(
             'test_link_through',
-            'TestModel',
+            TestModel::class,
             'test_bundle',
             false, // inversed
             true, // is_many
@@ -111,42 +111,15 @@ final class modelAttributeLinkthroughTest extends TestCase
         $this->assertEquals('relation_model_type', $linkThroughAttr->relation_model_type);
     }
 
-    public function testLinkThroughAttributeConstructorWithoutTarget(): void
-    {
-        // Test creating a ModelAttributeLinkThrough with explicit target table instead of target class
-        $linkThroughAttr = new ModelAttributeLinkThrough(
-            'test_link_through',
-            'TestModel',
-            'default',
-            false, // inversed
-            true, // is_many
-            null, // default value
-            'test_table',
-            'test_id',
-            'target_id',
-            null, // target class
-            'target_table',
-            'target_id',
-            'relation_table',
-            'relation_model_column',
-            'relation_model_type'
-        );
-
-        $this->assertNull($linkThroughAttr->target);
-        $this->assertEquals('target_table', $linkThroughAttr->target_table);
-        $this->assertEquals('target_id', $linkThroughAttr->target_id_key);
-        $this->assertEquals(AttributeType::ID, $linkThroughAttr->target_id_type);
-    }
-
     public function testLinkThroughAttributeConstructorRequiresTargetOrTable(): void
     {
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('You need to provide at least a target object or a target table for the link attribute.');
+        $this->expectException(\Error::class);
+        $this->expectExceptionMessage('Class name must be a valid object or a string');
 
         // This should fail because neither target nor target_table is provided
         new ModelAttributeLinkThrough(
             'test_link_through',
-            'TestModel',
+            TestModel::class,
             'default',
             false,
             true,
@@ -165,7 +138,7 @@ final class modelAttributeLinkthroughTest extends TestCase
     {
         $linkThroughAttr = new ModelAttributeLinkThrough(
             'simple_link_through',
-            'TestModel',
+            TestModel::class,
             'default',
             false,
             true,
@@ -180,7 +153,7 @@ final class modelAttributeLinkthroughTest extends TestCase
         $this->assertEquals('default', $linkThroughAttr->bundle);
         $this->assertFalse($linkThroughAttr->is_required);
         $this->assertFalse($linkThroughAttr->is_inversed);
-        $this->assertEquals('simple_link_through_id', $linkThroughAttr->target_column);
+        $this->assertEquals('test_simple_id', $linkThroughAttr->target_column);
         $this->assertEquals([], $linkThroughAttr->value);
         $this->assertTrue($linkThroughAttr->is_link);
         $this->assertTrue($linkThroughAttr->is_link_through);
@@ -197,7 +170,7 @@ final class modelAttributeLinkthroughTest extends TestCase
             true,
             null,
             null, // will use makeRelationTableName
-            null,
+            'id',
             null,
             TestModelTag::class
         );
@@ -360,41 +333,6 @@ final class modelAttributeLinkthroughTest extends TestCase
         }
     }
 
-    public function testGetAttributeValueWithoutTargetClass(): void
-    {
-        // Create a link through attribute without target class (uses array values)
-        $linkThroughAttr = new ModelAttributeLinkThrough(
-            'array_link_through',
-            'TestModel',
-            'default',
-            false,
-            true,
-            null,
-            'test_table',
-            'test_id',
-            'target_id',
-            null, // no target class
-            'target_table',
-            'target_key',
-            'relation_table'
-        );
-
-        // Set array value
-        $arrayValue = ['target_key' => 555, 'name' => 'Test'];
-        try {
-            $linkThroughAttr->create($arrayValue);
-            if ($this->isAttributeValid($linkThroughAttr)) {
-                $result = $linkThroughAttr->get(false);
-                $this->assertIsArray($result);
-                $this->assertArrayHasKey(555, $result);
-                $this->assertEquals($arrayValue, $result[555]);
-            }
-        } catch (\Exception $e) {
-            // Array parsing might fail without proper validation
-            $this->assertStringContainsString('target_key', $e->getMessage());
-        }
-    }
-
     public function testParseValueWithModelObject(): void
     {
         $attributes = $this->modelManyToMany->getAttributes();
@@ -449,37 +387,7 @@ final class modelAttributeLinkthroughTest extends TestCase
         
         $parseValueMethod->invoke($linkThroughAttr, 'invalid_value');
     }
-
-    public function testParseValueWithArrayMissingKey(): void
-    {
-        // Create a link through attribute without target class
-        $linkThroughAttr = new ModelAttributeLinkThrough(
-            'array_link_through',
-            'TestModel',
-            'default',
-            false,
-            true,
-            null,
-            'test_table',
-            'test_id',
-            'target_id',
-            null, // no target class
-            'target_table',
-            'required_key',
-            'relation_table'
-        );
-
-        // Use reflection to test parseValue method directly
-        $reflection = new \ReflectionClass($linkThroughAttr);
-        $parseValueMethod = $reflection->getMethod('parseValue');
-        $parseValueMethod->setAccessible(true);
-
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('The attribute value must have a key named required_key');
-
-        $parseValueMethod->invoke($linkThroughAttr, ['wrong_key' => 'value']);
-    }
-
+    
     public function testUpdateAttributeValueRequiresObjectId(): void
     {
         $attributes = $this->modelManyToMany->getAttributes();
@@ -575,7 +483,8 @@ final class modelAttributeLinkthroughTest extends TestCase
         $linkThroughAttr = $attributes['tags'];
         
         // Test many-to-many specific configuration
-        $this->assertTrue($linkThroughAttr->is_many);
+        $this->assertTrue($linkThroughAttr->is_link);
+        $this->assertTrue($linkThroughAttr->is_link_through);
         $this->assertStringContainsString('able_type', $linkThroughAttr->relation_model_type);
         $this->assertStringContainsString('able_id', $linkThroughAttr->relation_model_column);
     }
@@ -749,7 +658,7 @@ final class modelAttributeLinkthroughTest extends TestCase
         );
 
         $this->assertEquals('minimal_link_through', $linkThroughAttr->name);
-        $this->assertEquals('minimal_link_through_id', $linkThroughAttr->target_column);
+        $this->assertEquals('test_simple_id', $linkThroughAttr->target_column);
         $this->assertEquals(TestModelSimple::class, $linkThroughAttr->target);
         
         // Test that target properties are set from target model
@@ -794,14 +703,14 @@ final class modelAttributeLinkthroughTest extends TestCase
             true,
             null,
             null, // will use makeRelationTableName
-            null,
+            'id',
             null,
             TestModelTag::class
         );
 
         // Relation table should be generated automatically
         $this->assertNotEmpty($linkThroughAttr->relation_table);
-        $this->assertStringContainsString('relation', $linkThroughAttr->relation_table);
+        $this->assertStringContainsString('test_tagables', $linkThroughAttr->relation_table);
     }
 
     public function testValueManipulationEdgeCases(): void

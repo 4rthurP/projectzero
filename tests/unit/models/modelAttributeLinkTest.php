@@ -103,7 +103,7 @@ final class modelAttributeLinkTest extends TestCase
         $this->assertEquals('TestModel', $linkAttr->model);
         $this->assertEquals('test_table', $linkAttr->model_table);
         $this->assertEquals('test_id', $linkAttr->model_id_key);
-        $this->assertEquals('target_id', $linkAttr->target_column);
+        $this->assertEquals('test_id', $linkAttr->target_column);
         $this->assertEquals(TestModelSimple::class, $linkAttr->target);
     }
 

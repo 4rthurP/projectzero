@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use PHPUnit\Framework\Attributes\Depends;
-
-use InvalidArgumentException;
 
 use pz\Config;
 use pz\database\Database;

@@ -1,5 +1,6 @@
-- FIX model attributes tests
-- FIX: model_link does not take into account deleted elements
+- FIX: model_link does not take into account deleted elements -> add the associated tests
+- FIX: query methods should accept int/numeric params -> add the associated tests
+
 - Add a unique constraint on model attributes
 - Revoir les backups MySQL et l'install pour pas force delete les tables
 - Logging

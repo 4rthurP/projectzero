@@ -169,8 +169,7 @@ abstract class AbstractModelAttribute
     public function update($value, $object_id = null, $update_in_db = false): static {
         $this->setId($object_id);
 
-        // Reset the value
-        $this->value = null;
+        // Reset the value for link attributes to make sure we remove all previous values with the new one
         if($this->is_inversed || $this->is_link_through) {
             $this->value = [];
         }

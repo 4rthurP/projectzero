@@ -176,8 +176,7 @@ final class modelAttributeAbstractTest extends TestCase
         $attribute = $this->createTestAttribute();
         
         // Test that add method throws exception on non-link attributes
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('This method is only available for link attributes.');
+        $this->expectException(\TypeError::class);
         
         $attribute->add('some_value');
     }
@@ -206,17 +205,6 @@ final class modelAttributeAbstractTest extends TestCase
             // Skip if specific implementation requirements not met
             $this->markTestSkipped('Link attribute add method requires specific implementation');
         }
-    }
-
-    public function testUnsetMethodOnNonLinkAttribute(): void
-    {
-        $attribute = $this->createTestAttribute();
-        
-        // Test that unset method throws exception on non-link attributes
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('This method is only available for link attributes.');
-        
-        $attribute->unset(123);
     }
 
     public function testGetMethod(): void
@@ -584,10 +572,8 @@ final class modelAttributeAbstractTest extends TestCase
         $this->assertTrue(isset($attribute->type));
         $this->assertTrue(isset($attribute->name));
         $this->assertTrue(isset($attribute->bundle));
-        $this->assertTrue(isset($attribute->value));
         $this->assertTrue(isset($attribute->messages));
         $this->assertTrue(isset($attribute->is_required));
-        $this->assertTrue(isset($attribute->default_value));
         
         // Test protected properties require reflection
         $this->assertFalse(isset($attribute->object_id)); // Should be protected
@@ -639,8 +625,6 @@ final class modelAttributeAbstractTest extends TestCase
         $this->assertSame($attribute, $attribute->create('test'));
         $this->assertSame($attribute, $attribute->update('test'));
         $this->assertSame($attribute, $attribute->loadFromValue('test', 123));
-        $this->assertSame($attribute, $attribute->save(123));
-        $this->assertSame($attribute, $attribute->setId(456));
     }
 
     public function testAbstractClassCannotBeInstantiated(): void

@@ -4,6 +4,10 @@ use pz\Model;
 use pz\Enums\model\AttributeType;
 use pz\Enums\Routing\Privacy;
 
+class TestModel extends Model {
+    public static $name = 'test';
+}
+
 class TestModelA extends Model
 {
     public static $name = 'test_a';
@@ -146,7 +150,7 @@ class TestModelMinimal extends Model
     {
         $this->timestamps(false); // Disable timestamps first
         $this->user(null); // No user attribute
-        $this->attribute('simple_field', AttributeType::CHAR, false);
+        $this->attribute('simple_field', AttributeType::CHAR, true);
     }
 }
 
