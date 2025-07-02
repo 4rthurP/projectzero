@@ -17,41 +17,33 @@ class WhereClause
 
     public function __construct(
         string $param1,
-        string|QueryOperator|null $param2,
-        string|array|QueryLink|null $param3 = null,
+        mixed $param2,
+        mixed $param3 = null,
         ?QueryLink $param4 = null
     ) {
         $this->column = $param1;
-
         $link = $param4;
 
-
+        // Locate the value and operator among the parameters
         if ($param2 instanceof QueryOperator) {
             $this->operator = $param2;
-            if (!is_array($param3) && !is_string($param3) && !is_null($param3)) {
-                throw new TypeError('Invalid parameter: expected a value after a QueryOperator');
-            }
-
-            $this->values = $param3;
+            $value = $param3;
         } else {
             if ($param2 != null && QueryOperator::tryFrom($param2) !== null) {
                 $this->operator = QueryOperator::from($param2);
-                if (!is_array($param3) && !is_string($param3) && !is_null($param3)) {
-                    throw new TypeError('Invalid parameter: expected a value after a QueryOperator');
-                }
-
-                $this->values = $param3;
+                $value = $param3;
             } else {
                 $this->operator = QueryOperator::EQUALS;
-                if (!is_array($param2) && !is_string($param2) && !is_null($param2)) {
-                    throw new TypeError('Invalid parameter: expected a value after a QueryOperator');
-                }
-
-                $this->values = $param2;
+                $value = $param2;
                 $link = $param3;
             }
         }
 
+        // Validate the value
+        $this->testIsValidValue($value);
+        $this->values = $value;
+
+        // Set the link, defaulting to AND if not provided or invalid
         if ($link === null) {
             $this->link = QueryLink::AND;
         } elseif ($link instanceof QueryLink) {
@@ -113,5 +105,19 @@ class WhereClause
         $value = $this->values;
 
         return ['clause' => $clause, 'param' => $param, 'values' => [$value]];
+    }
+
+    /**
+     * Validates the value of the where clause
+     * @param mixed $value
+     * @return true
+     * @throws TypeError if the value is not valid
+     */
+    private function testIsValidValue(mixed $value): true
+    {
+        if ($value === null || is_string($value) || is_numeric($value) || is_array($value)) {
+            return true;
+        }
+        throw new TypeError('Invalid parameter: expected a value after a QueryOperator');
     }
 }

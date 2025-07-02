@@ -88,12 +88,12 @@ class Query
      * Find the first record in the database table that matches the specified condition.
      *
      * @param string $column The column name to search for.
-     * @param string $value The value to compare against.
+     * @param mixed $value The value to compare against.
      * @param QueryOperator|null $operator The operator to use for the comparison. Defaults to QueryOperator::EQUALS.
      * @return mixed The first record that matches the condition.
      * @throws Exception If there are already where clauses defined.
      */
-    public function firstWhere(String $column, String $value, ?QueryOperator $operator = QueryOperator::EQUALS): ?array
+    public function firstWhere(string $column, mixed $value, ?QueryOperator $operator = QueryOperator::EQUALS): ?array
     {
         if ($this->whereGroups !== []) {
             throw new  Exception('The firstWhere method cannot be used when there are already where clauses defined');
@@ -278,15 +278,15 @@ class Query
      * - where([['column1', 'value1', ?QueryOperator], ['column2', 'value2', ?QueryOperator], ...], ?QueryLink) : Adds a new WHERE clause for each line in the array
      *
      * @param string|array $param1 The column name or an array of WHERE conditions.
-     * @param string|QueryOperator|QueryLink|null $param2 The value to compare against, or a QueryOperator.
-     * @param string|QueryLink|null $param3 The value to compare against, or a QueryLink.
+     * @param mixed $param2 The value to compare against, or a QueryOperator.
+     * @param mixed $param3 The value to compare against, or a QueryLink.
      * @param QueryLink|null $param4 The value to compare against, or a QueryLink.
      * @return $this The updated Query object.
      */
     public function where(
         string|array $param1,
-        string|QueryOperator|QueryLink|null $param2 = null,
-        string|array|QueryLink|null $param3 = null,
+        mixed $param2 = null,
+        mixed $param3 = null,
         ?QueryLink $param4 = null
     ): static {
         if (is_array($param1)) {
@@ -309,14 +309,14 @@ class Query
      * Adds an "OR" condition to the query's WHERE clause.
      *
      * @param string|array $param1 The column name or an array of column names.
-     * @param string|QueryOperator $param2 The operator or QueryOperator object.
+     * @param mixed $param2 The operator or QueryOperator object.
      * @param string|null $param3 The value for the condition (optional).
      * @return static The Query object for method chaining.
      * @throws Exception If the parameter count is invalid.
      */
     public function orWhere(
         string|array $param1, 
-        string|QueryOperator|null $param2, 
+        mixed $param2, 
         ?string $param3 = null
     ): static {
         if (is_array($param1)) {

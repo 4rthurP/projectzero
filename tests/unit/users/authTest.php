@@ -70,7 +70,7 @@ final class authTest extends TestCase
         $this->auth->login();
 
         $session_in_db = Query::from('user_sessions')
-            ->where('user_id', strval($this->added_user->getId()))
+            ->where('user_id', $this->added_user->getId())
             ->where('ip', '1.1.1.1')
             ->first();
 

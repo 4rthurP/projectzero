@@ -29,7 +29,7 @@ final class queryTest extends TestCase
             [
                 [
                     ['nonce', 'evzudve'],
-                    ['user_id', '1'],
+                    ['user_id', 1],
                 ],
                  QueryLink::OR
                 ],
@@ -63,10 +63,10 @@ final class queryTest extends TestCase
         return [
             ['nonce', QueryOperator::EQUALS, '=', 'evzudve', 'evzudve', 1],
             ['nonce', QueryOperator::NOT_EQUALS, '!=', 'evzudve', '679', $total_elements -1],
-            ['user_id', QueryOperator::GREATER_THAN, '>', '1', '2', $total_elements - 3],
+            ['user_id', QueryOperator::GREATER_THAN, '>', 1, '2', $total_elements - 3],
             ['user_id', QueryOperator::LESS_THAN, '<', '2', '1', 3],
             ['user_id', QueryOperator::GREATER_THAN_OR_EQUAL, '>=', '2', '2', $total_elements - 3],
-            ['user_id', QueryOperator::LESS_THAN_OR_EQUAL, '<=', '2', '2', 4],
+            ['user_id', QueryOperator::LESS_THAN_OR_EQUAL, '<=', 2, '2', 4],
             ['nonce', QueryOperator::LIKE, 'LIKE', '%evzu%', 'evzudve', 1],
             ['nonce', QueryOperator::NOT_LIKE, 'NOT LIKE', '%evzu%', '679', $total_elements -1],
             ['user_id', QueryOperator::IN, 'IN', ['1', '2'], '2', 4],
@@ -120,7 +120,7 @@ final class queryTest extends TestCase
     
 
     #[DataProvider('basicWhereClauseProvider')]
-    public function testFetchingWithBasicQueryOperators(string $column, QueryOperator $operator, string $str_operator, string|array $value, string $expected_value, int $expected_count): void
+    public function testFetchingWithBasicQueryOperators(string $column, QueryOperator $operator, string $str_operator, mixed $value, string $expected_value, int $expected_count): void
     {
         $query_with_operator = Query::from('nonces');
         $where_query_with_operator = $query_with_operator->where($column, $operator, $value);
@@ -225,7 +225,7 @@ final class queryTest extends TestCase
     }
 
     #[DataProvider('basicWhereClauseProvider')]
-    public function testFirstMethodOnlyReturnsOneOrNoResult(string $column, QueryOperator $operator, string $str_operator, string|array $value, string $expected_value, int $expected_count): void
+    public function testFirstMethodOnlyReturnsOneOrNoResult(string $column, QueryOperator $operator, string $str_operator, mixed $value, string $expected_value, int $expected_count): void
     {
         
         $query_with_operator = Query::from('nonces');
@@ -252,7 +252,7 @@ final class queryTest extends TestCase
     }
 
     #[DataProvider('basicWhereClauseProvider')]
-    public function testGetOnlyReturnsTheDesiredColumn(string $column, QueryOperator $operator, string $str_operator, string|array $value, string $expected_value, int $expected_count): void
+    public function testGetOnlyReturnsTheDesiredColumn(string $column, QueryOperator $operator, string $str_operator, mixed $value, string $expected_value, int $expected_count): void
     {
         $query_with_operator = Query::from('nonces');
         $where_query_with_operator = $query_with_operator->where($column, $operator, $value);
