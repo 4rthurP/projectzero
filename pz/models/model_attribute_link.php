@@ -336,17 +336,19 @@ class ModelAttributeLink extends AbstractModelAttribute
             throw new Exception("Object ID not set");
         }
         
+        // Inversed relationship: fetch all target IDs that reference this object
         if($this->is_inversed) {
-            $found_values = Query::from($this->target_table)->where($this->target_column, $this->object_id)->fetch();
+            $found_values = $this->model::query([$this->target_column => $this->object_id], false, 'raw');
             return $found_values;
         } 
-        $value = Query::from($this->model_table)->where($this->model_id_key, $this->object_id)->first();
-        if($value != null) {
-            $found_values = Query::from($this->target_table)->where($this->target_id_key, $value[$this->target_column])->first();
-            return $found_values;
+
+        // Non-inversed relationship: fetch the target ID from the source model
+        # TODO: if the model is already loaded this should not be necessary
+        $value = $this->model::find($this->object_id, false, 'raw');
+        if($value === null) {
+            return null;
         }
-        
-        return null;
+        return $this->target::find($value[$this->target_column], false, 'raw');
     }
 
     /**

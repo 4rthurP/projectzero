@@ -1255,7 +1255,7 @@ class Model
     ###############################
     # Model querying methods
     ###############################
-    public static function query(array $where_args = [], string $mode = 'object', bool $load_relations = false, array $order_by_args = [], ?String $distinct = null, ?int $limit = null, ?int $offset = null): array
+    public static function query(array $where_args = [], bool $load_relations = false, string $mode = 'object', array $order_by = [], ?String $distinct = null, ?int $limit = null, ?int $offset = null): array
     {
         if($mode == 'raw' && $load_relations) {
             throw new Exception('Cannot load relations in raw mode: you either need to use the object or array mode.');
@@ -1275,7 +1275,7 @@ class Model
             }
         }
         
-        foreach($order_by_args as $key => $order) {
+        foreach($order_by as $key => $order) {
             $query->order($key, $order);
         }
         if($distinct !== null) {
@@ -1343,7 +1343,7 @@ class Model
      * @return static The found or created model.
      */
     public static function findOrCreate(array $attributes_to_find, array $attributes_to_create = [], bool $load_relations_if_found = false): static {
-        $ressource = static::query($attributes_to_find, 'object', $load_relations_if_found);
+        $ressource = static::query($attributes_to_find, $load_relations_if_found);
 
         if($ressource !== []) {
             return $ressource[0];

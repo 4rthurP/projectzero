@@ -298,12 +298,8 @@ class ModelAttributeLinkThrough extends AbstractModelAttribute
         $list_of_ids = array_map(fn($item) => $item[$this->target_column], $found_relations);
         
         // Query the target table to find the actual linked records
-        $found_values = (
-            Query::from($this->target_table)
-            ->whereIn($this->target_id_key, $list_of_ids)
-            ->fetch()
-        );
-        
+        $found_values = $this->target::query([$this->target_id_key => ["IN", $list_of_ids]], false, 'raw');
+
         // Sanitize the return
         if(count($found_values) == 0) {
             return null;

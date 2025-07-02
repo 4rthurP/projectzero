@@ -1,6 +1,6 @@
-- FIX: model_link does not take into account deleted elements -> add the associated tests
 - FIX: query methods should accept int/numeric params -> add the associated tests
 
+- Add test for model with database connexion: creation/deletion, link, and test that soft deleted elements are not retrieved 
 - Add a unique constraint on model attributes
 - Revoir les backups MySQL et l'install pour pas force delete les tables
 - Logging
