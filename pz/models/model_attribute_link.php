@@ -338,7 +338,7 @@ class ModelAttributeLink extends AbstractModelAttribute
         
         // Inversed relationship: fetch all target IDs that reference this object
         if($this->is_inversed) {
-            $found_values = $this->model::query([$this->target_column => $this->object_id], false, 'raw');
+            $found_values = $this->target::query([$this->target_column => $this->object_id], false, 'raw');
             return $found_values;
         } 
 
