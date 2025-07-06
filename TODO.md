@@ -1,16 +1,20 @@
-- FIX: query methods should accept int/numeric params -> add the associated tests
-
-- Add test for model with database connexion: creation/deletion, link, and test that soft deleted elements are not retrieved 
-- Add a unique constraint on model attributes
-- Revoir les backups MySQL et l'install pour pas force delete les tables
-- Logging
-    - Add options in env variables to set up streams ?
-    - Add script location
 - User
     - Roles
     - Add post-register method to execute
-- Add params to endpoints: mandatories or optionals, minimal typing
-- Then automate endpoint documentation (+ can add a desc)
-- Lazy setup of models attributes
-- Find the source of the WTF statement in routing
-- Database insert, update and delete queries methods ?
+- Model attributes
+    - Lazy setup of models attributes
+    - Automatic attribute order for many links
+    - Unique constraint
+    - Add test for model with database connexion: 
+        - creation/deletion, 
+        - links
+        - soft deleted elements are not retrieved 
+- Routing:
+    - Add params to endpoints: mandatories or optionals, minimal typing
+    - Automate endpoint documentation (+ can add a desc)
+- Logging
+    - Add options in env variables to set up streams ?
+    - Add script location
+    - Find the source of the WTF statement in routing
+- Database 
+    - insert, update and delete queries methods ?
