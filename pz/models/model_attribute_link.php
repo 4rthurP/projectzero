@@ -206,12 +206,6 @@ class ModelAttributeLink extends AbstractModelAttribute
         foreach($values as $value) {
             try {
                 $parsed_value = $this->parseValue($value);
-                if($this->target != null) {
-                    $id = $parsed_value->getId();
-                } else {
-                    $id = $parsed_value[$this->target_id_key];
-                }
-                $this->object_id = $id;
                 $this->value[] = $parsed_value;
             } catch (Throwable $e) {
                 $this->messages[] = ['error', 'attribute-type', $e->getMessage()];
@@ -245,6 +239,7 @@ class ModelAttributeLink extends AbstractModelAttribute
         $datetime = new DateTime("now", Config::tz());
         $datetime = $datetime->format('Y-m-d H:i:s');
 
+        // Non-inversed relationship: update source table record
         if(!$this->is_inversed) {
             if($this->target != null) {
                 $target_id = $this->value->getId();
@@ -267,23 +262,33 @@ class ModelAttributeLink extends AbstractModelAttribute
             
             $set_clause = implode(", ", $set_clauses);
             Database::execute("UPDATE $this->model_table SET $set_clause WHERE $this->model_id_key = ?", $types, ...$values);
-
-        } else {
-            $list_of_values = Query::from($this->target_table)->get($this->target_id_key)->where($this->target_column, $this->object_id)->fetch();
-            if($list_of_values != null) {
-                $list_of_values = array_map(fn($item) => $item['id'], $list_of_values);
-                foreach($this->value as $target_id => $item) {
-                    if(!in_array($target_id, $list_of_values)) {
-                        $this->updateTargetTable($this->object_id, $item->getId(), $datetime);
-                    } else {
-                        $list_of_values = array_diff($list_of_values, [$target_id]);
-                    }
-                }
-                foreach($list_of_values as $item) {
-                    $this->updateTargetTable(null, $item, $datetime);
-                }
-            } 
+            
+            return $this;
+        } 
+        
+        // Inversed relationship: update target table records
+        if($this->name == "depositories") {
+            Log::info("Object ID: " . $this->object_id);
         }
+        $list_of_values = Query::from($this->target_table)->get($this->target_id_key)->where($this->target_column, $this->object_id)->fetch();
+        if(count($list_of_values) > 0) {
+            $list_of_values = array_map(fn($item) => $item['id'], $list_of_values);
+        } else {
+            $list_of_values = [];
+        }
+        
+
+        foreach($this->value as $target_id => $item) {
+            if(!in_array($target_id, $list_of_values)) {
+                $this->updateTargetTable($this->object_id, $item->getId(), $datetime);
+            } else {
+                $list_of_values = array_diff($list_of_values, [$target_id]);
+            }
+        }
+        foreach($list_of_values as $item) {
+            $this->updateTargetTable(null, $item, $datetime);
+        }
+        
         return $this;
     }
 

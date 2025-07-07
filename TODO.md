@@ -2,6 +2,8 @@
     - Roles
     - Add post-register method to execute
 - Model attributes
+    - Handling of plural and package name
+    - Add logging + exception when setting a non existing attribute
     - Lazy setup of models attributes
     - Automatic attribute order for many links
     - Unique constraint
@@ -16,5 +18,6 @@
     - Add options in env variables to set up streams ?
     - Add script location
     - Find the source of the WTF statement in routing
+    - Remove empty arrays from stdout
 - Database 
     - insert, update and delete queries methods ?
