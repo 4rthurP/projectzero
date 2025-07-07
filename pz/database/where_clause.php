@@ -115,7 +115,7 @@ class WhereClause
      */
     private function testIsValidValue(mixed $value): true
     {
-        if ($value === null || is_string($value) || is_numeric($value) || is_array($value)) {
+        if ($value === null || is_string($value) || is_numeric($value) || is_array($value) || is_bool($value)) {
             return true;
         }
         throw new TypeError('Invalid parameter: expected a value after a QueryOperator');
