@@ -18,6 +18,7 @@
     - Add options in env variables to set up streams ?
     - Add script location
     - Find the source of the WTF statement in routing
+    - Make other logs in auth debug only, add debug trace in routing/app
     - Remove empty arrays from stdout
 - Database 
     - insert, update and delete queries methods ?
