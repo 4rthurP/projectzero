@@ -533,7 +533,7 @@ class Query
         $query = "SELECT $columns FROM $this->table";
 
         foreach ($this->joins as $join) {
-            $query .= $join['type'] . " " . $join['table'] . " ON " . $this->table . "." . $join['column1'] . " = " . $join['table'] . "." . $join['column2'];
+            $query .= " {$join['type']->value} {$join['table']} ON {$this->table}.{$join['column1']} = {$join['table']}.{$join['column2']}";
         }
 
         if (count($this->whereGroups) > 0) {
