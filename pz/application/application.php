@@ -300,7 +300,8 @@ class Application extends ApplicationBase {
         
         try {
             $response = $this->page_response;
-
+            
+            // Adds response data to the view parameters
             if(isset($this->action_serving)) {
                 $params += ['form_data' => $this->action_serving->data()];
                 $params += ['form_messages' => $this->action_serving->dataMessages()];
@@ -312,7 +313,12 @@ class Application extends ApplicationBase {
             }
             $params += ['page_success' => $response->isSuccessful()];
             $params += ['page_message' => $response->getAnswer()];
+
+            // Adding device info to the view parameters to allow responsive display of pages 
+            $params += ['screen_size' => $_COOKIE['screen'] ?? null];
+            $params += ['device' => $_COOKIE['device'] ?? null];
             
+            // In development mode we add additional information about the request and response to the view parameters to help debugging
             if(Config::env() == 'DEV') {
                 $params += ['dev_mode' => true];
                 $params += ['action_request' => $this->current_action ?? null];
