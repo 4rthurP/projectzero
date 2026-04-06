@@ -1414,7 +1414,7 @@ class Model
      * 
      * @return Query The newly initialized query
      */
-    protected function startQuery(): Query
+    public function startQuery(): Query
     {
         // Initializes a select query in the model's table
         $query = Query::from($this->table);
