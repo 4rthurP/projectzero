@@ -1112,7 +1112,7 @@ class Model
      * @param string $name The name of the attribute.
      * @return bool Returns true if the attribute exists, false otherwise.
      */
-    protected function attributeExists($name): bool
+    public function attributeExists($name): bool
     {
         return isset($this->attributes[$name]);
     }

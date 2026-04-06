@@ -4,9 +4,10 @@ namespace pz\Controllers;
 
 use Exception;
 
+use pz\Config;
 use pz\Auth;
 use pz\ModelController;
-use pz\Models\User;
+use pz\Services\UserService;
 use pz\Routing\Request;
 use pz\Routing\Response;
 use pz\Enums\Routing\ResponseCode;
@@ -22,36 +23,37 @@ class UserController extends ModelController
     public function __construct()
     {
         parent::__construct();
-        $this->setModel(User::class);
+        $this->setService(UserService::class);
     }
 
     public function get_user_infos(Request $request)
     {
-        if(!$request->hasUser()) {
-            throw new Exception($_ENV['ENV'] == "DEV" ? 'User id is not set in the session' : 'User id is not set in the session');
+        if (!$request->hasUser()) {
+            throw new Exception(Config::env() == "DEV" ? 'User id is not set in the session' : 'User id is not set in the session');
         }
 
         return $request->user()->toArray();
     }
 
-    public function login(Request $request) {
+    public function login(Request $request)
+    {
         $auth = new Auth($request->data());
         $auth->login();
 
-        if($auth->isLoggedIn()) {
+        if ($auth->isLoggedIn()) {
             #TODO: add default route location + from header
             return new Response(
-                true, 
-                ResponseCode::Ok, 
-                'logged-in', 
-                'index.php', 
+                true,
+                ResponseCode::Ok,
+                'logged-in',
+                'index.php',
                 [
-                    "user_id" => $auth->getUserId(), 
+                    "user_id" => $auth->getUserId(),
                     "session_token" => $_SESSION['user']['session_token'] ?? null,
                 ]
             );
         }
-        
+
         return new Response(
             false,
             ResponseCode::Unauthorized,
@@ -59,21 +61,23 @@ class UserController extends ModelController
         );
     }
 
-    public function register(Request $request): Response {
+    public function register(Request $request): Response
+    {
         $response = parent::create($request);
-        if(!$response->success) {
+        if (!$response->success) {
             return $response;
         }
-        
+
         //Auto login after registration
         return $this->login($request);
     }
 
-    public function get_nonce(Request $request): Response {
+    public function get_nonce(Request $request): Response
+    {
         $auth = new Auth($request->data());
         $auth->retrieveSession($request->data('credential'));
-        
-        if(!$auth->isLoggedIn()) {
+
+        if (!$auth->isLoggedIn()) {
             return new Response(
                 false,
                 ResponseCode::Unauthorized,
@@ -81,7 +85,7 @@ class UserController extends ModelController
                 data: ['credential' => $request->data('credential')],
             );
         }
-        
+
         return new Response(
             true,
             ResponseCode::Ok,
@@ -91,7 +95,8 @@ class UserController extends ModelController
         );
     }
 
-    public function logout(): Response {
+    public function logout(): Response
+    {
         Auth::logout();
         return new Response(true, ResponseCode::Ok, 'User logged out', 'index.php');
     }

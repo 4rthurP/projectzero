@@ -2,33 +2,70 @@
 
 namespace pz;
 
+use Exception;
+
 use pz\Controller;
 use pz\Routing\Request;
 use pz\Routing\Response;
 use pz\Enums\Routing\ModelEndpoint;
 use pz\Enums\Routing\ResponseCode;
+class ModelController extends Controller
+{
+    protected string $model;
+    protected string $model_class;
+    protected string $service_class = ModelService::class;
 
-class ModelController extends Controller {
-    protected $model;
-    protected $modelIdKey;
-    static protected ?Array $api_endpoints = [
-        ModelEndpoint::LIST, 
-        ModelEndpoint::GET, 
-        ModelEndpoint::SET, 
-        ModelEndpoint::CREATE, 
-        ModelEndpoint::DELETE, 
+    static protected ?array $api_endpoints = [
+        ModelEndpoint::LIST ,
+        ModelEndpoint::GET,
+        ModelEndpoint::SET,
+        ModelEndpoint::CREATE,
+        ModelEndpoint::DELETE,
         ModelEndpoint::UPDATE
     ];
 
-    public function __construct() {
+    public function __construct()
+    {
         parent::__construct();
     }
 
-    public function setModel($model_class) {
-        $this->model = $model_class;
+    public function setService(string $service_class)
+    {
+        if (!is_subclass_of($service_class, ModelService::class)) {
+            throw new Exception(Config::env() == "DEV" ? 'Provided class is not a valid service class' : 'An error occurred');
+        }
+        $this->service = new $service_class();
+        $this->service_class = $service_class;
+        $this->model = $this->service->class;
+    }
 
-        $model = new $this->model;
-        $this->modelIdKey = $model->getIdKey();
+    public function setModel(string $model_class) {
+        if (!is_subclass_of($model_class, Model::class)) {
+            throw new Exception(Config::env() == "DEV" ? 'Provided class is not a valid model class' : 'An error occurred');
+        }
+        $this->model_class = $model_class;
+        $this->service = new $this->service_class($model_class);
+    }
+
+    /**
+     * Retrieves the API endpoints associated with the model controller.
+     *
+     * @return array The API endpoints.
+     */
+    public static function getApiEndpoints()
+    {
+        return self::$api_endpoints;
+    }
+
+    /**
+     * Checks if the specified API endpoint exists in the model controller.
+     *
+     * @param string $endpoint The API endpoint to check.
+     * @return bool Returns true if the API endpoint exists, false otherwise.
+     */
+    public function hasApiEndpoint(string $endpoint)
+    {
+        return in_array($endpoint, $this::$api_endpoints);
     }
 
     ###############################
@@ -40,16 +77,14 @@ class ModelController extends Controller {
      * @param Request $request The request object containing user and data information.
      * @return Response The response object containing the result of the operation.
      */
-    public function get(Request $request): Response {
-        $loadModelResponse = $this->loadModel($request, 'view');
-        if(!$loadModelResponse->isSuccessful()) {
-            return $loadModelResponse;
+    public function get(Request $request): Response
+    {
+        $object = $this->loadModel($request, 'view');
+        if ($object == null) {
+            return $this->service->makeResponse();
         }
 
-        $model = $loadModelResponse->data('model');
-
-        $response_content = $model->toArray();
-        return new Response(true, ResponseCode::Ok, 'get-'.$model->getName(), null, $response_content);
+        return new Response(true, ResponseCode::Ok, 'get-' . $object->getName(), null, $object->toArray());
     }
 
     /**
@@ -58,39 +93,38 @@ class ModelController extends Controller {
      * @param Request $request The request object containing the data.
      * @return Response The response object indicating the result of the create operation.
      */
-    public function create(Request $request): Response {
-        $model = new $this->model;
-        $model->create($request->data());
-        
-        if($model->isValid()) {
-            $response = new Response(true, ResponseCode::Ok, 'created-'.$model::$name, null, $model->toArray());
-            if($model->page_url != '') {
-                $response->setRedirect($model->page_url.'?id='.$model->getId());
+    public function create(Request $request): Response
+    {
+        $model = $this->service->create($request->data());
+
+        if ($model->isValid()) {
+            $response = new Response(true, ResponseCode::Ok, 'created-' . $model::$name, null, $model->toArray());
+            if ($model->page_url != '') {
+                $response->setRedirect($model->page_url . '?id=' . $model->getId());
             }
             return $response;
         }
-        
+
         return new Response(false, ResponseCode::BadRequestContent, 'form-error', null, $model->getFormData(), $model->getFormMessages());
     }
 
-    public function update(Request $request): Response {
-        $loadModelResponse = $this->loadModel($request, 'edit');
-        if(!$loadModelResponse->isSuccessful()) {
-            return $loadModelResponse;
+    public function update(Request $request): Response
+    {
+        $object = $this->loadModel($request, 'edit');
+        if ($object == null) {
+            return $this->service->makeResponse();
         }
 
-        $model = $loadModelResponse->data('model');
-        $model->update($request->data());
-
-        if($model->isValid()) {
-            $response =  new Response(true, ResponseCode::Ok, 'updated-'.$model->getName(), null, $model->toArray());
-            if($model->page_url != '') {
-                $response->setRedirect($model->page_url.'?id='.$model->getId());
+        $object->update($request->data());
+        if ($object->isValid()) {
+            $response = new Response(true, ResponseCode::Ok, 'updated-' . $object->getName(), null, $object->toArray());
+            if ($object->page_url != '') {
+                $response->setRedirect($object->page_url . '?id=' . $object->getId());
             }
             return $response;
         }
-        
-        return new Response(false, ResponseCode::BadRequestContent, 'form-error', null, $model->getFormData(), $model->getFormMessages());
+
+        return new Response(false, ResponseCode::BadRequestContent, 'form-error', null, $object->getFormData(), $object->getFormMessages());
     }
 
     /**
@@ -99,16 +133,16 @@ class ModelController extends Controller {
      * @param Request $request The request object.
      * @return Response The response object.
      */
-    public function delete(Request $request): Response {
-        $loadModelResponse = $this->loadModel($request, 'edit');
-        if(!$loadModelResponse->isSuccessful()) {
-            return $loadModelResponse;
+    public function delete(Request $request): Response
+    {
+        $object = $this->loadModel($request, 'edit');
+        if ($object == null) {
+            return $this->service->makeResponse();
         }
 
-        $model = $loadModelResponse->data('model');
-        $model->delete();
+        $object->delete();
 
-        return new Response(true, ResponseCode::Ok, 'deleted-'.$model::$name.'-'.$request->data($model->idKey));
+        return new Response(true, ResponseCode::Ok, 'deleted-' . $object::$name . '-' . $request->data($object->idKey));
     }
 
     /**
@@ -117,21 +151,21 @@ class ModelController extends Controller {
      * @param Request $request The request object containing the necessary data.
      * @return Response The response object indicating the success or failure of the operation.
      */
-    public function set(Request $request): Response {        
+    public function set(Request $request): Response
+    {
         $requested_attribute = $request->data('attribute');
-        if($requested_attribute == null) {
+        if ($requested_attribute == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
 
-        $loadModelResponse = $this->loadModel($request, 'edit');
-        if(!$loadModelResponse->isSuccessful()) {
-            return $loadModelResponse;
+        $object = $this->loadModel($request, 'edit');
+        if ($object == null) {
+            return $this->service->makeResponse();
         }
 
-        $model = $loadModelResponse->data('model');   
-        $model->set($requested_attribute, $request->data('value'));
+        $object->set($requested_attribute, $request->data('value'));
 
-        return new Response(true, ResponseCode::Ok, 'set-'.$model::$name.'-'.$requested_attribute);
+        return new Response(true, ResponseCode::Ok, 'set-' . $object::$name . '-' . $requested_attribute);
     }
 
     /**
@@ -140,24 +174,25 @@ class ModelController extends Controller {
      * @param Request $request The request object containing the attribute to retrieve.
      * @return Response The response object containing the result of the attribute retrieval.
      */
-    public function get_attribute(Request $request): Response {
+    public function get_attribute(Request $request): Response
+    {
         $requested_attribute = $request->data('attribute');
-        if($requested_attribute == null) {
+        $requested_attribute = $request->data('attribute');
+        if ($requested_attribute == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
 
-        $loadModelResponse = $this->loadModel($request, 'view');
-        if(!$loadModelResponse->isSuccessful()) {
-            return $loadModelResponse;
+        $object = $this->loadModel($request, 'edit');
+        if ($object == null) {
+            return $this->service->makeResponse();
         }
 
-        $model = $loadModelResponse->data('model');
-        if(!$model->attributeExists($requested_attribute)) {
+        if (!$object->attributeExists($requested_attribute)) {
             return new Response(false, ResponseCode::NotFound, 'attribute-not-found');
         }
 
-        $response_content = $model->get($requested_attribute);
-        return new Response(true, ResponseCode::Ok, 'get-'.$model::$name.'-'.$requested_attribute, null, $response_content);
+        $response_content = $object->get($requested_attribute);
+        return new Response(true, ResponseCode::Ok, 'get-' . $object::$name . '-' . $requested_attribute, null, $response_content);
     }
 
     /**
@@ -171,12 +206,12 @@ class ModelController extends Controller {
         $as_object = $request->data('as_object', false);
         $limit = $request->data('limit');
         $offset = $request->data('offset');
-        
+
         $response_content = $this->model::list($as_object, $limit, $offset);
-        
-        return new Response(true, ResponseCode::Ok, 'list-'.$this->model::$name, null, $response_content);
+
+        return new Response(true, ResponseCode::Ok, 'list-' . $this->model::$name, null, $response_content);
     }
-    
+
     /**
      * Counts the number of records in the model.
      *
@@ -186,7 +221,7 @@ class ModelController extends Controller {
     public function count(Request $request): Response
     {
         $response_content = $this->model::count();
-        return new Response(true, ResponseCode::Ok, 'count-'.$this->model::$name, null, $response_content);
+        return new Response(true, ResponseCode::Ok, 'count-' . $this->model::$name, null, $response_content);
     }
 
     /**
@@ -195,22 +230,19 @@ class ModelController extends Controller {
      * @param Request $request The request object containing the data.
      * @return Response The response object containing the privacy settings.
      */
-    public function getModelPrivacy(Request $request): Response {
-        $model = new $this->model;
-
-        if(!$request->hasData('right')) {
+    public function getModelPrivacy(Request $request): Response
+    {
+        if (!$request->hasData('right')) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-right');
         }
         $right = $request->data('right');
-        if($right == 'view') {
-            $response_content = $model->getViewingPrivacy();
-        } else if($right == 'edit') {
-            $response_content = $model->getEditingPrivacy();
-        } else {
-            return new Response(false, ResponseCode::BadRequestContent, 'invalid-right-requested');
+
+        $has_right = $this->service->checkModelRight($right);
+        if (!$has_right) {
+            return $this->service->makeResponse();
         }
 
-        return new Response(true, ResponseCode::Ok, 'privacy-'.$model::$name.'-'.$right, null, $response_content);
+        return new Response(true, ResponseCode::Ok, 'privacy-' . $this->model::$name . '-' . $right, null, ["mode" => $has_right->value]);
     }
 
     ###############################
@@ -221,57 +253,21 @@ class ModelController extends Controller {
      *
      * @return mixed The model associated with the controller.
      */
-    public function getModel() {
+    public function getModel()
+    {
         return $this->model;
     }
 
-    /**
-     * Loads a model based on the provided request and checks user rights if specified.
-     *
-     * @param Request $request The request object.
-     * @param string|null $rightToCheck The right to check for user permissions (optional).
-     * @return Response The response object containing the loaded model or an error message.
-     */
-    protected function loadModel(Request $request, ?string $rightToCheck = null): Response {
-        $ressource_id = $request->data($this->modelIdKey);
-        if($ressource_id == null) {
-            return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
-        }
+    protected function loadModel(Request $request, ?string $rightToCheck = null): ?Model
+    {
+        $load_relations = $request->data('load_relations', false);
 
-        $load_relations = $request->data('load_relations') ?? false;
-        $load_relations = $load_relations === 'true' || $load_relations === true;
-        
-        $model = $this->model::find($ressource_id, $load_relations);
-        if($model == null || !$model->isModelInstantiated()) {
-            return new Response(false, ResponseCode::NotFound, 'ressource-not-found');
-        }
-        
-        if($rightToCheck !== null) {
-            $user_id = $request->user()->getId();
-            if(!$model->checkUserRights($rightToCheck, $user_id)) {
-                return new Response(false, ResponseCode::Forbidden, 'permission-denied');
-            }
-        }
-        
-        return new Response(true, ResponseCode::Ok, null, null, ['model' => $model]);
+        return $this->service->loadModel(
+            $request->data($this->service->idKey),
+            $request->user(),
+            $load_relations or $load_relations === 'true',
+            $rightToCheck,
+        );
     }
 
-    /**
-     * Retrieves the API endpoints associated with the model controller.
-     *
-     * @return array The API endpoints.
-     */
-    public static function getApiEndpoints() {
-        return self::$api_endpoints;
-    }
-
-    /**
-     * Checks if the specified API endpoint exists in the model controller.
-     *
-     * @param string $endpoint The API endpoint to check.
-     * @return bool Returns true if the API endpoint exists, false otherwise.
-     */
-    public function hasApiEndpoint(String $endpoint) {
-        return in_array($endpoint, $this::$api_endpoints);
-    }
 }
