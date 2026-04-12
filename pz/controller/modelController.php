@@ -258,12 +258,15 @@ class ModelController extends Controller
         return $this->model;
     }
 
-    protected function loadModel(Request $request, ?string $rightToCheck = null): ?Model
+    protected function loadModel(Request $request, ?string $rightToCheck = null, ?string $id_key = null): ?Model
     {
         $load_relations = $request->data('load_relations', false);
+        if ($id_key === null) {
+            $id_key = $this->service->idKey;
+        }
 
         return $this->service->loadModel(
-            $request->data($this->service->idKey),
+            $request->data($id_key),
             $request->user(),
             $load_relations or $load_relations === 'true',
             $rightToCheck,
