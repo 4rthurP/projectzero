@@ -13,7 +13,7 @@ use pz\Enums\model\AttributeType;
 use Throwable;
 
 class ModelAttribute extends AbstractModelAttribute
-{    
+{
     public bool $is_link = false;
     public bool $is_link_through = false;
 
@@ -32,7 +32,18 @@ class ModelAttribute extends AbstractModelAttribute
      * @param string|null $updated_at_column Column name for tracking update timestamps
      * @return static Returns the current instance for method chaining
      */
-    public function __construct(String $name, AttributeType $type, String $model, String $bundle = 'default', bool $isRequired = false, ?String $default_value = null, ?String $model_table = null, ?String $model_id_key = null, ?String $target_column = null, ?String $updated_at_column = null) {
+    public function __construct(
+        string $name,
+        AttributeType $type,
+        string $model,
+        string $bundle = 'default',
+        bool $isRequired = false,
+        ?string $default_value = null,
+        ?string $model_table = null,
+        ?string $model_id_key = null,
+        ?string $target_column = null,
+        ?string $updated_at_column = null,
+    ) {
         $this->name = $name;
         $this->type = $type;
         $this->is_required = $isRequired;
@@ -44,8 +55,6 @@ class ModelAttribute extends AbstractModelAttribute
         $this->model_id_key = $model_id_key;
         $this->target_column = $target_column ?? $name;
         $this->updated_at_column = $updated_at_column;
-        
-        return $this;
     }
 
     #################################################################
@@ -64,7 +73,8 @@ class ModelAttribute extends AbstractModelAttribute
      *
      * @return mixed The formatted attribute value or null if the value is null
      */
-    protected function getAttributeValue() {
+    protected function getAttributeValue()
+    {
         switch ($this->type) {
             case AttributeType::LIST:
                 return is_array($this->value) ? implode(',', $this->value) : $this->value;
@@ -92,25 +102,26 @@ class ModelAttribute extends AbstractModelAttribute
      *
      * @see parseValue() for type-specific parsing logic
      */
-    protected function setAttributeValue($attribute_value, bool $is_creation = false): static {
+    protected function setAttributeValue($attribute_value, bool $is_creation = false): static
+    {
         $messages = [];
         $current_value = null;
         $mode = 'create';
-        
-        if(!$is_creation) {
+
+        if (!$is_creation) {
             $current_value = $this->value;
             $mode = 'edit';
         }
 
         #### Checking the attribute value
-        if($this->is_required && $attribute_value === null) {
-            if($mode == 'create' && $this->default_value == null) {
-                $this->messages[] = ['error', 'attribute-required', $this->name." is required but no value was provided."];
+        if ($this->is_required && $attribute_value === null) {
+            if ($mode == 'create' && $this->default_value == null) {
+                $this->messages[] = ['error', 'attribute-required', $this->name . " is required but no value was provided."];
                 $this->is_valid = false;
                 return $this;
             }
 
-            if($mode == 'edit' && $current_value != null) {
+            if ($mode == 'edit' && $current_value != null) {
                 $this->messages[] = ['warning', 'old-value-user', "The old value was used for $this->name as the new value passed was null and this attribute is required."];
                 return $this;
             }
@@ -119,8 +130,8 @@ class ModelAttribute extends AbstractModelAttribute
             $this->messages[] = ['info', 'default-value-used', "The default value ($this->default_value) was used for $this->name"];
         }
 
-        if(!$this->is_required && $attribute_value === null) {
-            $messages[] = ['info', 'attribute-missing-not-required', "No value was provided for ".$this->name];
+        if (!$this->is_required && $attribute_value === null) {
+            $messages[] = ['info', 'attribute-missing-not-required', "No value was provided for " . $this->name];
         }
 
         ##### Value parsing and setting 
@@ -148,24 +159,24 @@ class ModelAttribute extends AbstractModelAttribute
      */
     protected function updateAttributeValue(): static
     {
-        if($this->object_id === null) {
+        if ($this->object_id === null) {
             throw new Exception("Object ID not set");
         }
-        
+
         $set_clauses = ["$this->target_column = ?"];
         $values = [$this->value];
         $types = "s";
-        
+
         if ($this->updated_at_column) {
             $datetime = new DateTime("now", Config::tz());
             $set_clauses[] = "$this->updated_at_column = ?";
             $values[] = $datetime->format('Y-m-d H:i:s');
             $types .= "s";
         }
-        
+
         $values[] = $this->object_id;
         $types .= "s";
-        
+
         $set_clause = implode(", ", $set_clauses);
         Database::execute("UPDATE $this->model_table SET $set_clause WHERE $this->model_id_key = ?", $types, ...$values);
 
@@ -183,7 +194,8 @@ class ModelAttribute extends AbstractModelAttribute
      *
      * @see Query::from() for the query builder used
      */
-    protected function fetchAttributeValue() {
+    protected function fetchAttributeValue()
+    {
         if ($this->object_id === null) {
             throw new Exception("Object ID not set");
         }
@@ -214,14 +226,14 @@ class ModelAttribute extends AbstractModelAttribute
      */
     protected function parseValue($value)
     {
-        $generic_exception_message = is_string($value) ? "The attribute '$this->name' needs to be a ".$this->type->value." but the value provided '".$value."' is not." : "The attribute '$this->name' needs to be a ".$this->type->value." but the value provided is not.";
+        $generic_exception_message = is_string($value) ? "The attribute '$this->name' needs to be a " . $this->type->value . " but the value provided '" . $value . "' is not." : "The attribute '$this->name' needs to be a " . $this->type->value . " but the value provided is not.";
 
         ### Specific cases
         if ($this->type === AttributeType::RELATION || $this->type === AttributeType::ID) {
             return $value;
         }
 
-        if($this->type === AttributeType::EMAIL) {
+        if ($this->type === AttributeType::EMAIL) {
             if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
                 throw new Exception("The attribute '$this->name' needs to be an email but the value provided is not.");
             }
@@ -230,7 +242,7 @@ class ModelAttribute extends AbstractModelAttribute
 
         ### General types
         if ($this->type === AttributeType::CHAR) {
-            if ($value === null) {
+            if ($value === null || $value === '') {
                 return null;
             }
 
@@ -242,7 +254,7 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         if ($this->type === AttributeType::TEXT) {
-            if ($value === null) {
+            if ($value === null || $value === '') {
                 return null;
             }
 
@@ -250,9 +262,9 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         if ($this->type === AttributeType::BOOL) {
-            if($value === 'true' || $value === 'on'  || $value == 1) {
+            if ($value === 'true' || $value === 'on' || $value == 1) {
                 $value = true;
-            } else if($value === 'false' || $value === 'off'  || $value == 0) {
+            } else if ($value === 'false' || $value === 'off' || $value == 0) {
                 $value = false;
             }
             if (!is_bool($value) && $value != null) {
@@ -263,9 +275,10 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         if ($this->type === AttributeType::INT) {
-            if($value == '') {
+            if ($value === null || $value === '') {
                 return null;
             }
+            
             if (!is_numeric($value)) {
                 throw new Exception($generic_exception_message);
             }
@@ -274,7 +287,11 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         if ($this->type === AttributeType::FLOAT) {
-            if (!is_numeric($value) && $value != null) {
+            if ($value === null || $value === '') {
+                return null;
+            }
+
+            if (!is_numeric($value)) {
                 throw new Exception($generic_exception_message);
             }
 
@@ -282,14 +299,14 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         if ($this->type === AttributeType::LIST) {
-            if ($value === null) {
+            if ($value === null || $value === '') {
                 return [];
             }
             return explode(',', $value);
         }
 
         if ($this->type === AttributeType::DATE || $this->type === AttributeType::DATETIME) {
-            if ($value === null) {
+            if ($value === null || $value === '') {
                 return null;
             }
             if ($value instanceof DateTime) {
@@ -299,7 +316,7 @@ class ModelAttribute extends AbstractModelAttribute
             if (strpos($value, '/') !== false) {
                 return (new DateTime())->createFromFormat($this->type === AttributeType::DATE ? 'd/m/Y' : 'd/m/y H:i:s', $value, Config::tz());
             }
-            
+
             return new DateTime($value, Config::tz());
         }
 
