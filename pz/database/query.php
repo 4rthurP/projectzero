@@ -551,6 +551,10 @@ class Query
             }
         }
 
+        if(count($this->groupBy) > 0) {
+            $query .= " GROUP BY " . implode(', ', $this->groupBy);
+        }
+
         if (count($this->orderBy) > 0) {
             $query .= " ORDER BY ";
             foreach ($this->orderBy as $order) {

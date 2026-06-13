@@ -11,6 +11,7 @@ enum ModelEndpoint: string {
     case DELETE = 'delete';
     case GET = 'get';
     case SET = 'set';
+    case COUNT = 'count';
 
     public function getMethod() {
         switch($this) {
@@ -26,6 +27,8 @@ enum ModelEndpoint: string {
                 return Method::GET;
             case ModelEndpoint::SET:
                 return Method::POST;
+            case ModelEndpoint::COUNT:
+                return Method::GET;
         }
     }
 }

@@ -14,11 +14,13 @@ class ModelController extends Controller
     protected string $model;
     protected string $model_class;
     protected string $service_class = ModelService::class;
+    protected ModelService $model_service; # Used for type hinting
 
     static protected ?array $api_endpoints = [
         ModelEndpoint::LIST ,
         ModelEndpoint::GET,
         ModelEndpoint::SET,
+        ModelEndpoint::COUNT,
         ModelEndpoint::CREATE,
         ModelEndpoint::DELETE,
         ModelEndpoint::UPDATE
@@ -35,6 +37,7 @@ class ModelController extends Controller
             throw new Exception(Config::env() == "DEV" ? 'Provided class is not a valid service class' : 'An error occurred');
         }
         $this->service = new $service_class();
+        $this->model_service = $this->service;
         $this->service_class = $service_class;
         $this->model = $this->service->class;
     }
@@ -45,6 +48,7 @@ class ModelController extends Controller
         }
         $this->model_class = $model_class;
         $this->service = new $this->service_class($model_class);
+        $this->model_service = $this->service;
     }
 
     /**
@@ -95,7 +99,7 @@ class ModelController extends Controller
      */
     public function create(Request $request): Response
     {
-        $model = $this->service->create($request->data());
+        $model = $this->model_service->create($request->data());
 
         if ($model->isValid()) {
             $response = new Response(true, ResponseCode::Ok, 'created-' . $model::$name, null, $model->toArray());
@@ -112,7 +116,7 @@ class ModelController extends Controller
     {
         $object = $this->loadModel($request, 'edit');
         if ($object == null) {
-            return $this->service->makeResponse();
+            return $this->model_service->makeResponse();
         }
 
         $object->update($request->data());
@@ -137,7 +141,7 @@ class ModelController extends Controller
     {
         $object = $this->loadModel($request, 'edit');
         if ($object == null) {
-            return $this->service->makeResponse();
+            return $this->model_service->makeResponse();
         }
 
         $object->delete();
@@ -160,7 +164,7 @@ class ModelController extends Controller
 
         $object = $this->loadModel($request, 'edit');
         if ($object == null) {
-            return $this->service->makeResponse();
+            return $this->model_service->makeResponse();
         }
 
         $object->set($requested_attribute, $request->data('value'));
@@ -177,14 +181,13 @@ class ModelController extends Controller
     public function get_attribute(Request $request): Response
     {
         $requested_attribute = $request->data('attribute');
-        $requested_attribute = $request->data('attribute');
         if ($requested_attribute == null) {
             return new Response(false, ResponseCode::BadRequestContent, 'missing-id');
         }
 
         $object = $this->loadModel($request, 'edit');
         if ($object == null) {
-            return $this->service->makeResponse();
+            return $this->model_service->makeResponse();
         }
 
         if (!$object->attributeExists($requested_attribute)) {
@@ -203,13 +206,27 @@ class ModelController extends Controller
      */
     public function list(Request $request): Response
     {
-        $as_object = $request->data('as_object', false);
+        $mode = $request->data('mode', 'array');
         $limit = $request->data('limit');
         $offset = $request->data('offset');
 
-        $response_content = $this->model::list($as_object, $limit, $offset);
+        $order_by = $request->data('order_by');
+        $order_desc = $request->data('order_desc', false);
+        $order_desc = $order_desc === 'true' || $order_desc === true || $order_desc === 'yes';
 
-        return new Response(true, ResponseCode::Ok, 'list-' . $this->model::$name, null, $response_content);
+        $load_relations = $request->data('load_relations', false);
+        $load_relations = $load_relations === 'true' || $load_relations === true || $load_relations === 'yes';
+
+        $response_content = $this->model_class::query(
+            where_args: [],
+            load_relations: $load_relations,
+            mode: $mode,
+            order_by: $order_by ? [$order_by => !$order_desc] : [],
+            limit: $limit,
+            offset: $offset,
+        );
+
+        return new Response(true, ResponseCode::Ok, 'list-' . $this->model_class::$name, null, $response_content);
     }
 
     /**
@@ -220,8 +237,8 @@ class ModelController extends Controller
      */
     public function count(Request $request): Response
     {
-        $response_content = $this->model::count();
-        return new Response(true, ResponseCode::Ok, 'count-' . $this->model::$name, null, $response_content);
+        $response_content = $this->model_class::count();
+        return new Response(true, ResponseCode::Ok, 'count-' . $this->model::$name, null, ["count" => $response_content]);
     }
 
     /**
@@ -237,9 +254,9 @@ class ModelController extends Controller
         }
         $right = $request->data('right');
 
-        $has_right = $this->service->checkModelRight($right);
+        $has_right = $this->model_service->checkModelRight($right);
         if (!$has_right) {
-            return $this->service->makeResponse();
+            return $this->model_service->makeResponse();
         }
 
         return new Response(true, ResponseCode::Ok, 'privacy-' . $this->model::$name . '-' . $right, null, ["mode" => $has_right->value]);
@@ -266,7 +283,7 @@ class ModelController extends Controller
         }
 
         return $this->service->loadModel(
-            $request->data($id_key),
+            $request->data($id_key ?? $this->service->idKey),
             $request->user(),
             $load_relations or $load_relations === 'true',
             $rightToCheck,
