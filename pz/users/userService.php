@@ -2,10 +2,10 @@
 
 namespace pz\Services;
 
-use pz\Service;
+use pz\ModelService;
 use pz\Models\User;
 
-class UserService extends Service {
-    static protected string $model_class = User::class;
+class UserService extends ModelService {
+    protected string $model_class = User::class;
 
 }
