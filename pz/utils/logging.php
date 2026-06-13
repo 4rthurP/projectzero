@@ -2,7 +2,6 @@
 
 namespace pz;
 
-use Dotenv\Util\Str;
 use Monolog\Logger;
 use Monolog\Level;
 use Monolog\Handler\StreamHandler;

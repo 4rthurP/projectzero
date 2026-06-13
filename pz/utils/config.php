@@ -93,7 +93,8 @@ class Config {
      * @return string|null The environment setting, or null if not available.
      */
     public static function env(): ?string {
-        return self::get('ENV');
+        $env = self::get('ENV');
+        return (strtolower($env) === 'dev' || strtolower($env) === 'development') ? 'DEV' : 'PROD';
     }
 
     public static function app_path(): ?string {
