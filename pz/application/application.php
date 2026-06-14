@@ -63,6 +63,7 @@ class Application extends ApplicationBase
         if ($build_response !== true) {
             // If the request could not be built, we return the response
             // This is usually the case when the user is not authenticated or the request method is invalid
+            $this->log_response($build_response);
             return $build_response;
         }
 
@@ -70,13 +71,13 @@ class Application extends ApplicationBase
         try {
             $response = $this->handleRequest();
         } catch (Exception $e) {
+            $response = new Response(false, ResponseCode::InternalServerError, $e->getMessage(), '/');
             if (Config::env() == 'DEV') {
                 throw $e;
-            } else {
-                $response = new Response(false, ResponseCode::InternalServerError, $e->getMessage(), '/');
             }
-        }
-
+        }   
+                
+        $this->log_response($response);
         // Set the response code based on the response
         http_response_code($response->getResponseCode()->value);
 
@@ -117,6 +118,21 @@ class Application extends ApplicationBase
         }
 
         return $response;
+    }
+
+    public function log_response(Response $response)
+    {
+        $method = $this->request->getMethod();
+        $message = $method != null ? $method->name . ' ' : '';
+        $message .= $this->request->getAction() . ' - Response: ' . $response->getResponseCode()->name . ' - ' . $response->getAnswer();
+        
+        if (Config::env() == 'DEV') {
+            $log_level = $response->isSuccessful() ? 'info' : 'error';
+        } else {
+            $log_level = $response->isSuccessful() ? 'debug' : 'info';
+        }
+
+        Log::$log_level($message);
     }
 
     private function buildRequest(?array $request_params): true|Response
@@ -166,20 +182,19 @@ class Application extends ApplicationBase
             $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
             if (preg_match('/Bearer\s+(.*)$/i', $authHeader, $matches)) {
                 $session_token = $matches[1];
-                Log::info($session_token);
             }
         }
         // Handle authentication
         if (isset($_SESSION['user']) || $session_token !== null) {
             $auth = new Auth($this->request->data(), $this->user_class);
             if (isset($_SESSION['user'])) {
-                $auth->loadFromSession();
+                $auth->loginFromSession();
             } else {
-                $auth->retrieveSession($session_token);
+                $auth->loginFromSessionToken($session_token);
             }
 
             if ($auth->isValid()) {
-                $this->user_id = $auth->getUserId();
+                $this->user_id = $auth->user_id;
                 $this->request->setAuth($auth);
             } else {
                 Auth::logout();
@@ -187,7 +202,7 @@ class Application extends ApplicationBase
                     false,
                     ResponseCode::Unauthorized,
                     $auth->getErrorMessage(),
-                    '/index.php?error)' . $auth->getError(),
+                    '/index.php?error=' . $auth->getError(),
                 );
             }
         }

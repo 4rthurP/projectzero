@@ -2,9 +2,10 @@
 
 namespace pz;
 
+use Exception;
 use DateInterval;
 use DateTime;
-use PHPUnit\Util\Color;
+
 use pz\Models\User;
 use pz\Nonce;
 use pz\database\Query;
@@ -30,6 +31,10 @@ class Auth {
 
     protected ?string $error = null;
     protected ?string $error_message = null;
+
+    public ?string $user_id {
+        get => $this->user?->getId();
+    }
 
     public function __construct(array $request_data, string $user_model = User::class) {
         if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
@@ -60,24 +65,24 @@ class Auth {
     ################################################
     /**
      * Logs in a user based on data provided by the signin form.
+     * Called from the user controller when a login request is made.
      *
-     * @param array $form_data The form data containing user credentials.
-     * @return User|null Returns the User object if login is successful, otherwise returns null.
+     * @return static Returns the current instance of the class for method chaining.
      *
      * The method does the following:
      * - Checks if a login attempt can be made from the given IP address.
      * - Validates the user credentials provided in the form data.
      * - If all checks pass, it calls the loginUser method to set the user session.
      */
-    public function login(): ?User {   
+    public function loginFromForm(): static {   
         // Checking if the user is already logged in
         if($this->is_logged_in) {
-            return $this->user;
+            return $this;
         } 
         
         // Checking security
         if(!$this->checkCanMakeLoginAttempt()) {
-            return null;
+            return $this;
         }
         
         // Checking if the user exists  
@@ -99,25 +104,23 @@ class Auth {
 
     /**
      * Loads the authenticated user from the session.
+     * Called from the application when a session is detected during request initialization.
      *
      * This method checks if a user is stored in the session. If a user is found,
      * it attempts to retrieve the user from the database using the user model.
      * If the user is successfully retrieved, the authentication state is updated,
      * and the user is logged in.
      *
-     * @return static|null Returns the authenticated user instance if successful, 
-     *                     or null if no user is found in the session or the user 
-     *                     cannot be retrieved.
+     * @return static Returns the current instance of the class for method chaining.
      */
-    public function loadFromSession(): static | null {
+    public function loginFromSession(): static {
         if(!isset($_SESSION['user'])) {
-            return null;
+            return $this;
         }
 
-        $user_class = $this->user_model;
-        $this->user = $user_class::find($_SESSION['user']['id']);
+        $this->user = $this->user_model::find($_SESSION['user']['id']);
         if($this->user == null) {
-            return null;
+            return $this;
         }
 
         return $this->loginUser();
@@ -125,10 +128,9 @@ class Auth {
 
     /**
      * Logs in a user based on a session cookie.
+     * Called from the application when a session cookie is detected during request initialization.
      *
-     * @param string $session_cookie The session cookie in the format "user_id::token".
-     * @param string $ip The IP address of the user making the request.
-     * @return static Returns the current instance of the class.
+     * @return static Returns the current instance of the class for method chaining.
      *
      * The method performs the following steps:
      * - Validates the format of the session cookie.
@@ -141,13 +143,12 @@ class Auth {
      * If any of the validation steps fail, appropriate error messages are logged, and
      * the method handles the failure by either logging out the user or marking the session as invalid.
      *
-     * @throws Exception May throw exceptions if database queries or other operations fail.
      */
-    public function retrieveSession(string $session_cookie) {
+    public function loginFromSessionToken(string $session_cookie): static {
         // Checks the format of the given session cookie
         $token_match_format = preg_match('/^(\d+)::(.+)$/', $session_cookie, $decode_session_token);
         if (!$token_match_format) {
-            Log::error('Invalid session token format received: ' . $session_cookie);
+            // Invalid session cookie format
             return $this->failedLoginAttempt('Invalid session.');
         }
         $user_id = $decode_session_token[1];
@@ -156,15 +157,15 @@ class Auth {
         // Finds the user based on the given user ID
         $this->user = User::find($user_id);
         if ($this->user == null) {
-            Log::error('User not found for session cookie: ' . $session_cookie);
+            // User does not exist
             return $this->failedLoginAttempt('Invalid session.');
         }
         
         // Finds the latest session for the user
         $latest_session = $this->getLatestSessionToken();
 
-        # If the session is not found, it probably means it expired
-        # We do not raise a failed login attempt here, because the user might have a valid session
+        // If the session is not found, it probably means it expired
+        // We do not raise a failed login attempt here, the user might have a valid session that expired, and we don't want to penalize them for that.
         if ($latest_session == null) { 
             $this->is_valid = false;
             $this->error = 'session-expired';
@@ -174,7 +175,7 @@ class Auth {
         }
 
         if(!password_verify($token, $latest_session['token'])) {
-            Log::error('Invalid session token received: ' . $session_cookie);
+            // Invalid session token
             return $this->failedLoginAttempt('Invalid session.');
         }
 
@@ -187,13 +188,15 @@ class Auth {
         );
         
 
-        return $this->loginUser();
+        return $this->loginUser(load_session_token: false);
     }
 
     /**
      * Internal method to log in the user by setting session and cookie data.
-     *
-     * @return void
+     * 
+     * @param bool $load_session_token Optional. Determines whether to load the session token for the user. Defaults to true. 
+     *                                 Used when logging in from a session token to avoid creating a new session token.
+     * @return static Returns the current instance of the class for method chaining.
      * 
      * This method performs the following actions:
      * - Marks the user as logged in by setting the `$is_logged_in` property to `true`.
@@ -202,30 +205,35 @@ class Auth {
      * - Sets cookies for the user's ID and login name
      * - Loads the session token for the user.
      */
-    protected function loginUser() {
+    protected function loginUser(bool $load_session_token = true): static {
         $this->is_logged_in = true;
 
-        $nonce = new Nonce($this->user->getId());
-        $this->setNonce($nonce->getOrNew());
+        // Retrieve or create a nonce for the user and set it
+        // $nonce = new Nonce($this->user_id);
+        // $this->setNonce($nonce->getOrNew());
 
+        // Set session and cookie data for the user
         $cookies_expiration = Config::get('USER_SESSION_LIFETIME');
 
-        // $this->setUserSession($user_id);
-        $_SESSION['user']['id'] = $this->user->getId();
+        $_SESSION['user']['id'] = $this->user_id;
         $_SESSION['user']['name'] = $this->user->getLogin();
         $_SESSION['user']['role'] = 'user';
         $_SESSION['user']['cookie_end'] = time() + $cookies_expiration;
 
-        setcookie('user_id', $this->user->getId(), time() + $cookies_expiration, '/');
+        setcookie('user_id', $this->user_id, time() + $cookies_expiration, '/');
         setcookie('user_name', $this->user->getLogin(), time() + $cookies_expiration, '/');
+        
+        if($load_session_token) {
+            $this->loadSessionToken();
+        }
 
-        $this->loadSesionToken();
+        return $this;
     }
 
     ################################################
     # Login security methods
     ################################################
-    protected function failedLoginAttempt(?string $message = null, ?string $error = null, bool $register_attempt = true): User {
+    protected function failedLoginAttempt(?string $message = null, ?string $error = null, bool $register_attempt = true): static {
         $this->is_valid = false;
         $this->is_logged_in = false;
         $this->is_authenticated = false;
@@ -244,7 +252,7 @@ class Auth {
         }
 
         $this->logoutUser();
-        return $this->user;
+        return $this;
     }
 
     /**
@@ -254,7 +262,6 @@ class Auth {
      * 1. Whether the IP address is currently banned from making login attempts.
      * 2. Whether the IP address has made a recent login attempt.
      *
-     * @param string $ip The IP address to check.
      * @return bool Returns true if the IP address is allowed to make a login attempt, 
      *              false otherwise.
      */
@@ -369,27 +376,25 @@ class Auth {
     # Session management methods
     ################################################
     /**
-     * Loads the current session token for the user.
+     * Loads the current session token for the user during the login process.
      *
      * If no session token exists, a new one is created. 
      * If a session token is found, it is set as the current session token.
      *
      * @return static Returns the current instance of the class.
      */
-    protected function loadSesionToken(): static {
+    protected function loadSessionToken(): static {
         if(!$this->is_logged_in) {
-            Log::error('Tried to check session for a user that is not logged in');
-            return $this;   
+            throw new Exception('Tried to check session for a user that is not logged in');
         }
 
-        // Load the latest session infos
+        // Load the latest session infos when available to avoid unnecessary database calls
         if(
             isset($_SESSION['user']['session_token']) && 
             isset($_SESSION['user']['session_expiration']) && 
             isset($_SESSION['user']['session_token_issued'])
             && $_SESSION['user']['session_expiration'] > time()
         ) {
-            #Avoid database calls if the session is already set
             $this->setSessionToken(
                 $_SESSION['user']['session_token'],
                 intval($_SESSION['user']['session_expiration']),
@@ -400,19 +405,18 @@ class Auth {
 
         } 
 
-        // We need to create a new session token since no valid session token was found and token is hashed and cannot be retrieved
+        // Need to create a new session token since no valid session token was found
         $this->createSessionToken();
         return $this;
     }
 
     /**
-     * Retrieves the latest valid session token for the current user and IP address.
+     * Retrieves the latest valid session token for the current user and IP address to check its validity.
      *
      * @return array|null Returns the latest session as an associative array if found
      *                    and valid, or null if no valid session exists.
      */
-    protected function getLatestSessionToken() {
-        Log::info('Auth: getLatestSessionToken method called');
+    protected function getLatestSessionToken(): ?array {
         $latest_session = Query::from('user_sessions')
             ->where('user_id', $this->user->getId())
             ->where('ip', $this->ip)
@@ -442,7 +446,6 @@ class Auth {
      * - Calls the setUserSessionCookie helper to set the cookie
      */
     protected function createSessionToken(): void {
-        Log::info('Auth: createSessionToken method called');
         $rand_string = bin2hex(random_bytes(16));
         $expiration_delay = Config::get('USER_SESSION_LIFETIME');
         $expiration_date = time() + $expiration_delay;
@@ -472,8 +475,9 @@ class Auth {
     /**
      * Sets a given session token for the user.
      *
-     * @param array $latest_session An associative array containing the latest session data, 
-     *                              including 'token' and 'expiration' keys.
+     * @param string $token The session token to be set for the user.
+     * @param int $expiration The expiration timestamp for the session token.
+     * @param int $issued_at The timestamp when the session token was issued.
      * @param bool $renew_if_possible Optional. Determines whether to attempt renewing the session 
      *                                 if possible. Defaults to true.
      *
@@ -526,12 +530,9 @@ class Auth {
      * determines if it can be extended based on the configured session renewal settings.
      * If renewal is possible, the session expiration time is updated in the database.
      *
-     * @param array $latest_session An associative array representing the latest session data.
-     *                              Expected keys:
-     *                              - 'created_at' (int): The timestamp when the session was created.
-     *                              - 'expiration' (int): The timestamp when the session is set to expire.
-     *                              - 'id' (int): The unique identifier of the session.
-     *                              - 'token' (string): The session token.
+     * @param string $token The session token to be set for the user.
+     * @param int $expiration The expiration timestamp for the session token.
+     * @param int $issued_at The timestamp when the session token was issued.
      *
      * @return bool Returns true if the session was renewed, false otherwise.
      *
@@ -549,9 +550,9 @@ class Auth {
      * - The current session duration must not exceed the maximum allowable session time.
      * - The session must be nearing expiration (based on the configured renewal time).
      */
-    protected function checkIfSessionCanBeRenewed(string $token, int $expiration, int $issued_at) {
+    protected function checkIfSessionCanBeRenewed(string $token, int $expiration, int $issued_at): bool {
         if(!Config::get('USER_SESSION_RENEWAL_ENABLED')) {
-            return;
+            return false;
         }
         $session_lifetime = Config::get('USER_SESSION_LIFETIME');
         $session_renewal_time = Config::get('USER_SESSION_RENEWAL');
@@ -600,26 +601,21 @@ class Auth {
     /**
      * Logs in a user based on a nonce received.
      *
-     * @param string|null $nonce_received The nonce received for authentication.
      * @return $this Returns the current instance of the user object.
      *
      * This method sets the user's login status based on the validity of the provided nonce.
      * If the nonce is missing or invalid, it sets the user as not logged in and adds an error message.
      * If the nonce is valid, it sets the user as logged in and generates a new nonce.
      *
-     * @throws InvalidArgumentException If the nonce is missing.
      */
     public function authentificate() {
-        Log::info('Auth: authentificate method called');
-
         if(!$this->is_logged_in) {
-            return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], 'Using nonce while not logged in');
+            $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], 'Using nonce while not logged in');
         }
 
         if($this->is_authenticated) {
             # If we are using a nonce different from the one we have, this could be a problem
             if($this->nonce_received != $this->nonce()) {
-                Log::error('The user is already authenticated, but a second different nonce was passed: ' . $this->nonce() . ' != ' . $this->nonce_received);
                 return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], 'Using another nonce while already authenticated');
             }
             
@@ -628,27 +624,24 @@ class Auth {
             return $this;
         }
 
+        if($this->nonce_received == null) {
+            return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], 'Missing nonce');
+        }
+            
         # Check the nonce given
         $nonce = new Nonce($this->user->getId());
         $nonce->checkNonce($this->nonce_received);
         $this->setNonce($nonce); 
 
-        if($this->nonce_received == null) {
-            Log::error('Missing nonce');
-            return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], 'Missing nonce');
-        }
-        
         if($nonce->isValid()) {
             $this->is_authenticated = true;
             return $this;
         }
         
-        Log::error('Invalid nonce');
         return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], $nonce->wasExpired() ? 'Expired nonce' : 'Invalid nonce');   
     }
 
     protected function setNonce(Nonce $nonce) {
-        Log::info('Auth: setNonce method called');
         $this->nonce = $nonce;
         $this->nonce_received = $nonce->nonce();
         $_SESSION['user']['nonce'] = $nonce->nonce();
@@ -693,7 +686,6 @@ class Auth {
     /**
      * Finds a user from the given login.
      * 
-     * @param Array|String $login The login to find the user by.
      * @return User|null The found user or null if not found.
      */
     private function findUser(): ?User {
@@ -751,16 +743,12 @@ class Auth {
         return $this->user;
     }
     
-    public function getUserId(): ?int {
-        return $this->user->getId();
-    }
-
     public function getNonce(): ?string {
-        return $this->nonce->nonce();
+        return $this->nonce?->nonce();
     }
 
     public function getNonceExpiration(): ?Datetime {
-        return $this->nonce->expiration();
+        return $this->nonce?->expiration();
     }
 
     public function getError(): ?string {

@@ -44,10 +44,10 @@ final class authTest extends TestCase
     }
 
     public function testUserLogin(): void {
-        $this->auth->login();
+        $this->auth->loginFromForm();
         
         $this->assertTrue($this->auth->isLoggedIn());
-        $this->assertEquals($this->added_user->getId(), $this->auth->getUserId());
+        $this->assertEquals($this->added_user->getId(), $this->auth->user_id);
 
         // Test that the correct session infos are set
         $this->assertIsArray($_SESSION['user']);
@@ -67,7 +67,7 @@ final class authTest extends TestCase
     }
 
     public function testUserLoginCreatedSessionInDatabase(): void {
-        $this->auth->login();
+        $this->auth->loginFromForm();
 
         $session_in_db = Query::from('user_sessions')
             ->where('user_id', $this->added_user->getId())
@@ -85,12 +85,12 @@ final class authTest extends TestCase
 
     #[DataProvider('incorrectCredentialsProvider')]
     public function testIncorrectCredentialsDoesNotWork(): void {
-        $this->incorrect_auth->login();
+        $this->incorrect_auth->loginFromForm();
 
         $this->assertFalse($this->incorrect_auth->isValid());
         $this->assertFalse($this->incorrect_auth->isLoggedIn());
         $this->assertFalse($this->incorrect_auth->isAuthenticated());
-        $this->assertNull($this->incorrect_auth->getUserId());
+        $this->assertNull($this->incorrect_auth->user_id);
         $this->assertEquals('login-failed', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered
@@ -101,16 +101,16 @@ final class authTest extends TestCase
     }
     
     public function testTooRapidLoginAttemptsAreBlocked(): void {
-        $this->incorrect_auth->login();
-        $this->incorrect_auth->login();
-        $this->auth->login();
+        $this->incorrect_auth->loginFromForm();
+        $this->incorrect_auth->loginFromForm();
+        $this->auth->loginFromForm();
 
         $this->markTestIncomplete('This test has not been implemented yet.');
 
         // $this->assertFalse($this->auth->isValid());
         // $this->assertFalse($this->auth->isLoggedIn());
         // $this->assertFalse($this->auth->isAuthenticated());
-        // $this->assertNull($this->auth->getUserId());
+        // $this->assertNull($this->auth->user_id);
         // $this->assertEquals('login-failed', $this->auth->getError());
 
         // // Check that a failed login attempt was registered
@@ -125,14 +125,14 @@ final class authTest extends TestCase
         $attempts_limit = (int)Config::get('USER_ATTEMPS_THRESHOLD', 5);
         
         for ($i = 0; $i < $attempts_limit + 1; $i++) {
-            $this->incorrect_auth->login();
+            $this->incorrect_auth->loginFromForm();
             sleep((int)Config::get('USER_RECENT_ATTEMPT_TIME')); // Simulate rapid attempts
         }
 
         $this->assertFalse($this->incorrect_auth->isValid());
         $this->assertFalse($this->incorrect_auth->isLoggedIn());
         $this->assertFalse($this->incorrect_auth->isAuthenticated());
-        $this->assertNull($this->incorrect_auth->getUserId());
+        $this->assertNull($this->incorrect_auth->user_id);
         $this->assertEquals('unauthorized-login', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered

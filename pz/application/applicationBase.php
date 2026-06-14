@@ -65,11 +65,10 @@ class ApplicationBase {
     # Application configuration
     ##############################
     /**
-     * Adds a view to the application.
+     * Adds a module to the application.
      *
-     * @param String $name The name of the view.
-     * @param String|null $file The file path of the view. If null, the name will be used as the file path.
-     * @param Privacy|null $privacy The privacy setting for the view. If null, the default privacy will be used.
+     * @param String $module_name The name of the module.
+     * @param Privacy|null $default_privacy The default privacy setting for the module. If null, the application's default privacy will be used.
      * @return ApplicationModule Returns the module instance for method chaining.
      */
     public function module(String $module_name,  ?Privacy $default_privacy = null): ApplicationModule {

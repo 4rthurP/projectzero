@@ -2,6 +2,7 @@
 
 namespace pz\Routing;
 
+use Exception;
 use pz\Enums\Routing\Method;
 use pz\Auth;
 use pz\Log;
@@ -50,6 +51,7 @@ class Request
     public function isLoggedIn()
     {
         if($this->auth == null) {
+            Log::error('Trying to check if user is logged in, but auth is not set for the request.');
             return false;
         }
         return $this->auth->isLoggedIn();
@@ -65,11 +67,12 @@ class Request
 
     public function setAuth(Auth $auth)
     {
-        Log::info('Request setting auth');
-        $this->auth = $auth;
-        if($auth->isLoggedIn()) {
-            $this->data['user_id'] = $auth->getUserId();
+        if(!$auth->isLoggedIn()) {
+            throw new Exception('Trying to set auth for request, but user is not logged in.');
         }
+
+        $this->auth = $auth;
+        $this->data['user_id'] = $auth->user_id;
         return $this;
     }
 

@@ -38,17 +38,16 @@ class UserController extends ModelController
     public function login(Request $request)
     {
         $auth = new Auth($request->data());
-        $auth->login();
+        $auth->loginFromForm();
 
         if ($auth->isLoggedIn()) {
-            #TODO: add default route location + from header
             return new Response(
                 true,
                 ResponseCode::Ok,
                 'logged-in',
                 'index.php',
                 [
-                    "user_id" => $auth->getUserId(),
+                    "user_id" => $auth->user_id,
                     "session_token" => $_SESSION['user']['session_token'] ?? null,
                 ]
             );
@@ -75,7 +74,7 @@ class UserController extends ModelController
     public function get_nonce(Request $request): Response
     {
         $auth = new Auth($request->data());
-        $auth->retrieveSession($request->data('credential'));
+        $auth->loginFromSessionToken($request->data('credential'));
 
         if (!$auth->isLoggedIn()) {
             return new Response(
