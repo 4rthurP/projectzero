@@ -238,7 +238,7 @@ class ModelController extends Controller
     public function count(Request $request): Response
     {
         $response_content = $this->model_class::count();
-        return new Response(true, ResponseCode::Ok, 'count-' . $this->model::$name, null, ["count" => $response_content]);
+        return new Response(true, ResponseCode::Ok, 'count-' . $this->model_class::$name, null, ["count" => $response_content]);
     }
 
     /**
@@ -259,7 +259,7 @@ class ModelController extends Controller
             return $this->model_service->makeResponse();
         }
 
-        return new Response(true, ResponseCode::Ok, 'privacy-' . $this->model::$name . '-' . $right, null, ["mode" => $has_right->value]);
+        return new Response(true, ResponseCode::Ok, 'privacy-' . $this->model_class::$name . '-' . $right, null, ["mode" => $has_right->value]);
     }
 
     ###############################
@@ -282,7 +282,7 @@ class ModelController extends Controller
             $id_key = $this->service->idKey;
         }
 
-        return $this->service->loadModel(
+        return $this->model_service->loadModel(
             $request->data($id_key ?? $this->service->idKey),
             $request->user(),
             $load_relations or $load_relations === 'true',
