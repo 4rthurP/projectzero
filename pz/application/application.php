@@ -397,13 +397,12 @@ class Application extends ApplicationBase
 
         if ($from_version === null) {
             if (!file_exists($migrations_info_file)) {
-                throw new Exception('Migrations info file not found: ' . $migrations_info_file);
+                // Create the migrations info file if it does not exist
+                // Set the from version to 0.0.0, all migrations will be applied
+                file_put_contents($migrations_info_file, json_encode(['latest_version' => '0.0.0']));
             }
             $migrations_info = json_decode(file_get_contents($migrations_info_file), true);
-            $from_version = $migrations_info['latest_version'] ?? null;
-            if ($from_version === null) {
-                throw new Exception('Latest version not found in migrations info file: ' . $migrations_info_file);
-            }
+            $from_version = $migrations_info['latest_version'] ?? '0.0.0';
         }
         $from_version = new Version($from_version);
         
