@@ -420,7 +420,7 @@ class Auth {
         $latest_session = Query::from('user_sessions')
             ->where('user_id', $this->user->getId())
             ->where('ip', $this->ip)
-            ->order('expiration', false)
+            ->order('issued_at', false)
             ->first();
 
         if(!$latest_session) {
