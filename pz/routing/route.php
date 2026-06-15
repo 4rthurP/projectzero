@@ -178,7 +178,7 @@ class Route
         }
         
         // The nonce was used to authenticate the user, we send a new nonce back to the client for the next request. 
-        if ($this->requires_authentication && $this->request->isAuthenticated()) {
+        if ($this->request->isAuthenticated()) {
             $this->response->setNonce($this->request->nonce(), $this->request->nonceExpiration());
         }
 

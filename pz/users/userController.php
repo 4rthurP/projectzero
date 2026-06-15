@@ -73,26 +73,45 @@ class UserController extends ModelController
 
     public function get_nonce(Request $request): Response
     {
-        $auth = new Auth($request->data());
-        $auth->loginFromSessionToken($request->data('credential'));
-
-        if (!$auth->isLoggedIn()) {
-            return new Response(
-                false,
-                ResponseCode::Unauthorized,
-                'Failed login attempt',
-                data: ['credential' => $request->data('credential')],
-            );
+        // Auth was passed as Bearer token and was taken care of by the app
+        if ($request->isLoggedIn()) {
+            $auth = $request->getAuth();
+        }
+        // Auth was passed as a credential in the request body, we need to handle it here
+        else {
+            $credential = $request->data('credential');
+            if (!$credential) {
+                return new Response(
+                    false,
+                    ResponseCode::Unauthorized,
+                    'missing-credential',
+                    message:'No credential provided',
+                );
+            }
+                
+            $auth = new Auth($request->data());
+            $auth->loginFromSessionToken($credential);
+            if (!$auth->isLoggedIn()) {
+                return new Response(
+                    false,
+                    ResponseCode::Unauthorized,
+                    $auth->getError(),
+                );
+            }
         }
 
+        $auth->retrieveUserNonce();
+        $request->setAuth($auth);
+
+        // Route will see the request is authenticated and will send a new nonce back to the client for the next request.
         return new Response(
             true,
             ResponseCode::Ok,
-            'Nonce retrieved successfully',
-            null,
-            ['nonce' => $auth->nonce()],
+            'retrieved-nonce',
+            message: 'Nonce retrieved successfully',
         );
     }
+
 
     public function logout(): Response
     {

@@ -640,7 +640,34 @@ class Auth {
         
         return $this->failedLoginAttempt($_SERVER['REMOTE_ADDR'], $nonce->wasExpired() ? 'Expired nonce' : 'Invalid nonce');   
     }
+    
+    /**
+     * This method retrieves a new nonce for the currently logged-in user and sets it in the session and cookies.
+     * Use carefully: the nonce is not checked for validity, it is simply generated and set.
+     * The user will be considered authenticated after this method is called, so it should only be used in secure contexts.
+     * 
+     * @return bool Returns true if the nonce was successfully retrieved and set, false otherwise.
+     */
+    public function retrieveUserNonce(): bool {
+        if(!$this->isLoggedIn()) {
+            Log::error('Tried to retrieve nonce for a non logged-in user.');
+            return false;
+        }
 
+        $nonce = new Nonce($this->user->getId());
+        $nonce->getOrNew(minutes: 10);
+        $this->setNonce($nonce);
+        
+        $this->is_authenticated = true;
+
+        return true;
+    }
+
+    /**
+     * Sets the nonce for the current user and updates the session and cookies accordingly.
+     * 
+     * @param Nonce $nonce The nonce object to be set for the current user.
+     */
     protected function setNonce(Nonce $nonce) {
         $this->nonce = $nonce;
         $this->nonce_received = $nonce->nonce();

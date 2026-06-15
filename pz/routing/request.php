@@ -76,6 +76,14 @@ class Request
         return $this;
     }
 
+    public function getAuth(): ?Auth
+    {
+        if (!isset($this->auth)) {
+            return null;
+        }
+        return $this->auth;
+    }
+
     /**
      * Checks if a user is associated with the current request.
      *
