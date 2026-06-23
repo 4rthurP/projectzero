@@ -69,6 +69,12 @@ class WhereGroup {
      */
     public function buildWhereGroup(bool $isFirst = false): Array {
         $whereGroup = $isFirst ? '' : ' '.$this->linkToPrevious->value;
+
+        $add_parenthesis = count($this->whereClauses) > 1;
+        if($add_parenthesis) {
+            $whereGroup .= ' (';
+        }
+
         $params = '';
         $values = [];
 
@@ -83,7 +89,11 @@ class WhereGroup {
             }
             $firstClause = false;
         }
-        
+
+        if($add_parenthesis) {
+            $whereGroup .= ' )';
+        }
+
         return ['clause' => $whereGroup, 'params' => $params, 'values' => $values];
     }
 }
