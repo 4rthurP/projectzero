@@ -4,19 +4,18 @@ namespace pz;
 
 use Exception;
 use pz\ApplicationBase;
-use pz\Migration;
-use pz\Enums\Routing\Privacy;
+use pz\Config;
 use pz\Enums\Routing\Method;
+use pz\Enums\Routing\Privacy;
 use pz\Enums\Routing\ResponseCode;
+use pz\Migration;
+use pz\Models\User;
+use pz\Routing\Action;
+use pz\Routing\Request;
+use pz\Routing\Response;
 use pz\Routing\Route;
 use pz\Routing\View;
-use pz\Routing\Action;
-use pz\Routing\Response;
-use pz\Routing\Request;
-
-use pz\Config;
 use pz\Version;
-use pz\Models\User;
 
 class Application extends ApplicationBase
 {
@@ -39,7 +38,7 @@ class Application extends ApplicationBase
     protected $user_id;
 
     private string $application_key {
-        get => Config::get("APPLICATION_KEY");
+        get => Config::get('APPLICATION_KEY');
     }
 
     /**
@@ -75,8 +74,8 @@ class Application extends ApplicationBase
             if (Config::env() == 'DEV') {
                 throw $e;
             }
-        }   
-                
+        }
+
         $this->log_response($response);
         // Set the response code based on the response
         http_response_code($response->getResponseCode()->value);
@@ -86,7 +85,6 @@ class Application extends ApplicationBase
         if ($this->request->isAuthenticated()) {
             $response->setNonce($this->request->nonce(), $this->request->nonceExpiration());
         }
-
 
         // When auto render is enabled we take care of redirections and view rendering
         $auto_render = $auto_render ?? $this->auto_render;
@@ -124,8 +122,13 @@ class Application extends ApplicationBase
     {
         $method = $this->request->getMethod();
         $message = $method != null ? $method->name . ' ' : '';
-        $message .= $this->request->getAction() . ' - Response: ' . $response->getResponseCode()->name . ' - ' . $response->getAnswer();
-        
+        $message .=
+            $this->request->getAction()
+            . ' - Response: '
+            . $response->getResponseCode()->name
+            . ' - '
+            . $response->getAnswer();
+
         if (Config::env() == 'DEV') {
             $log_level = $response->isSuccessful() ? 'info' : 'error';
         } else {
@@ -148,7 +151,12 @@ class Application extends ApplicationBase
             // Request method
             $this->request->setMethod(Method::POST);
         } else {
-            return new Response(false, ResponseCode::InvalidRequestMethod, 'Invalid request method ' . $_SERVER['REQUEST_METHOD'], 'index.php');
+            return new Response(
+                false,
+                ResponseCode::InvalidRequestMethod,
+                'Invalid request method ' . $_SERVER['REQUEST_METHOD'],
+                'index.php',
+            );
         }
         // Add the additional request params to the attributes array (params passed via the method params are prioritized)
         if ($request_params != null) {
@@ -229,7 +237,7 @@ class Application extends ApplicationBase
             foreach ($actions as $action_params) {
                 $action = $this->buildRoute(...$action_params);
                 if ($view != null && !$action->hasMethod($this->request->getMethod())) {
-                    Log::warning("WTF is this statement ???");
+                    Log::warning('WTF is this statement ???');
                     // Action routing can fail if we try to access a page with both a POST and GET method, in this case we just need to serve the view
                     $action = null;
                 } else {
@@ -308,16 +316,12 @@ class Application extends ApplicationBase
      * Finally, it renders the view with the updated parameters.
      *
      * @param array $params An associative array of parameters to be passed to the view.
-     * 
+     *
      * @return void
      */
     public function render(?array $params = null)
     {
         if (!isset($this->current_view)) {
-            return;
-        }
-
-        if ($this->current_view === null) {
             return;
         }
 
@@ -341,9 +345,13 @@ class Application extends ApplicationBase
             $params += ['page_success' => $response->isSuccessful()];
             $params += ['page_message' => $response->getAnswer()];
 
-            // Adding device info to the view parameters to allow responsive display of pages 
-            $params += ['screen_size' => $_COOKIE['screen'] ?? null];
-            $params += ['device' => $_COOKIE['device'] ?? null];
+            // Adding device info to the view parameters to allow responsive display of pages
+            $screen_size = $_COOKIE['screen'] ? htmlspecialchars($_COOKIE['screen'], ENT_QUOTES, 'UTF-8') : null;
+            $device = $_COOKIE['device'] ? htmlspecialchars($_COOKIE['device'], ENT_QUOTES, 'UTF-8') : null;
+            $device = in_array($device, ['desktop', 'tablet', 'mobile']) ? $device : null;
+
+            $params += ['screen_size' => $screen_size];
+            $params += ['device' => $device];
 
             // In development mode we add additional information about the request and response to the view parameters to help debugging
             if (Config::env() == 'DEV') {
@@ -379,7 +387,7 @@ class Application extends ApplicationBase
     /**
      * Migrates the application to a newer version by applying the necessary migrations.
      * By default, if no version is specified, it will migrate from the latest version found in the migrations info file.
-     * 
+     *
      * @param mixed $from_version
      * @param string $migration_folder
      * @throws Exception
@@ -388,7 +396,7 @@ class Application extends ApplicationBase
     public function migrate(?string $from_version = null, string $migration_folder = 'migrations')
     {
         $app_key = $_GET['app'] ?? null;
-        if ($app_key == null || $app_key != $this->application_key) {
+        if ($app_key == null || !hash_equals($this->application_key, $app_key)) {
             throw new Exception('Invalid application key');
         }
 
@@ -405,19 +413,18 @@ class Application extends ApplicationBase
             $from_version = $migrations_info['latest_version'] ?? '0.0.0';
         }
         $from_version = new Version($from_version);
-        
+
         // Apply all migrations that are newer than the given version
         foreach ($this->listMigrationsToApply($migration_path, $from_version) as $migration) {
             $migration->up();
         }
-
 
         file_put_contents($migrations_info_file, json_encode(['latest_version' => $this->version ?? '0.0.0']));
     }
 
     /**
      *  Lists and sorts the migrations to apply based on the given migration path and the version to migrate from.
-     * 
+     *
      * @param string $migration_path
      * @param Version $from_version
      * @throws Exception
@@ -448,9 +455,9 @@ class Application extends ApplicationBase
         return $migrations;
     }
 
-    ##############################
-    # Application configuration
-    ##############################
+    // #############################
+    // Application configuration
+    // #############################
     /**
      * Sets the default parameters for Latte templates.
      *
@@ -477,7 +484,7 @@ class Application extends ApplicationBase
 
     /**
      * Sets the application version.
-     * 
+     *
      * @param string $version
      * @return static
      */
@@ -487,23 +494,17 @@ class Application extends ApplicationBase
         return $this;
     }
 
-    ##############################
-    # Getters
-    ##############################
+    // #############################
+    // Getters
+    // #############################
     public function getUserClass(): ?string
     {
         return $this->user_class;
     }
 
-    #TODO: remove when controllers are of use
-    public function getUser()
-    {
-        return $this->user_id;
-    }
-
-    ##############################
-    # Helper functions
-    ##############################
+    // #############################
+    // Helper functions
+    // #############################
     /**
      * Builds a route of the given class with the provided parameters.
      *
@@ -516,11 +517,11 @@ class Application extends ApplicationBase
      * @param string|null $error_location The location to redirect to on error, if any.
      * @param Privacy|null $privacy The privacy level of the route, if any.
      * @param string|null $associated_construct The associated construct (model or template) for the route, if any.
-     * 
+     *
      * @return Route|View Returns an instance of the specified route class, either a Route or a View.
-     * 
+     *
      * This method is used to create easily create a route from the stored parameters in the application.
-     * 
+     *
      */
     protected function buildRoute(
         string $route_class,
@@ -546,7 +547,7 @@ class Application extends ApplicationBase
             $controller_class,
             $function_name,
             $success_location,
-            $error_location
+            $error_location,
         );
 
         // Adds the given model for actions or template for views
@@ -603,7 +604,7 @@ class Application extends ApplicationBase
             $this->initialize();
         }
 
-        // Check application models 
+        // Check application models
         foreach ($this->models as $model_class_name => $model_controller) {
             if (!class_exists($model_class_name)) {
                 throw new Exception('The model class ' . $model_class_name . ' does
@@ -611,15 +612,20 @@ class Application extends ApplicationBase
             }
 
             $model_controller = $this->models[$model_class_name];
-            if (!is_subclass_of($model_controller, ModelController::class) && $model_controller !== ModelController::class) {
-                throw new Exception('The model controller ' . $model_controller . ' must be a subclass of ModelController.');
+            if (
+                !is_subclass_of($model_controller, ModelController::class)
+                && $model_controller !== ModelController::class
+            ) {
+                throw new Exception('The model controller '
+                . $model_controller
+                . ' must be a subclass of ModelController.');
             }
         }
 
         // Check application views
         foreach ($this->views as $view_path => $view_params) {
             $view = $this->buildRoute(...$view_params);
-            if (!($view instanceof View)) {
+            if (!$view instanceof View) {
                 throw new Exception('The view ' . $view_path . ' is not a valid View instance.');
             }
 
@@ -639,7 +645,7 @@ class Application extends ApplicationBase
         foreach ($this->actions as $action_path => $actions) {
             foreach ($actions as $action_params) {
                 $action = $this->buildRoute(...$action_params);
-                if (!($action instanceof Action)) {
+                if (!$action instanceof Action) {
                     throw new Exception('The action ' . $action_path . ' is not a valid Action instance.');
                 }
 

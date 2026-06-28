@@ -3,29 +3,26 @@
 namespace pz\Routing;
 
 use Exception;
-use pz\Enums\Routing\Method;
 use pz\Auth;
+use pz\Enums\Routing\Method;
 use pz\Log;
 use pz\Routing\DataHandler;
 
 class Request
 {
     use DataHandler;
-    
-    protected ?String $action;
-    protected ?String $success_location;
-    protected ?String $error_location;
+
+    protected ?string $action;
+    protected ?string $success_location;
+    protected ?string $error_location;
     protected ?Method $method;
-    
+
     public ?array $data;
-    
+
     protected ?Auth $auth;
 
-    public function __construct(
-        ?Method $method = null,
-        ?array $data = null,
-        ?String $action = null
-    ) {
+    public function __construct(?Method $method = null, ?array $data = null, ?string $action = null)
+    {
         $this->method = $method;
         $this->action = $action;
         $this->data = $data ?? [];
@@ -34,23 +31,23 @@ class Request
         $this->auth = null;
     }
 
-
-    #####################################
-    # User and Authentication
-    #####################################
-    public function authentificateUser() {
-        if($this->auth == null) {
+    // ####################################
+    // User and Authentication
+    // ####################################
+    public function authenticateUser()
+    {
+        if ($this->auth == null) {
             return false;
         }
 
-        $this->auth->authentificate();
+        $this->auth->authenticate();
 
         return $this->auth->isAuthenticated();
     }
 
     public function isLoggedIn()
     {
-        if($this->auth == null) {
+        if ($this->auth == null) {
             Log::error('Trying to check if user is logged in, but auth is not set for the request.');
             return false;
         }
@@ -59,7 +56,7 @@ class Request
 
     public function isAuthenticated()
     {
-        if($this->auth == null) {
+        if ($this->auth == null) {
             return false;
         }
         return $this->auth->isAuthenticated();
@@ -67,7 +64,7 @@ class Request
 
     public function setAuth(Auth $auth)
     {
-        if(!$auth->isLoggedIn()) {
+        if (!$auth->isLoggedIn()) {
             throw new Exception('Trying to set auth for request, but user is not logged in.');
         }
 
@@ -91,11 +88,11 @@ class Request
      */
     public function hasUser()
     {
-        if(!isset($this->auth)) {
+        if (!isset($this->auth)) {
             return false;
         }
-        
-        if($this->auth->getUser() != null) {
+
+        if ($this->auth->getUser() != null) {
             return true;
         }
         return false;
@@ -108,10 +105,10 @@ class Request
      */
     public function user()
     {
-        if($this->auth == null) {
+        if ($this->auth == null) {
             return null;
         }
-        
+
         return $this->auth->getUser();
     }
 
@@ -147,21 +144,48 @@ class Request
      * @return array|null Returns the file information as an associative array if the file exists,
      *                    or null if the file is not found in the $_FILES superglobal.
      */
-    public function getFile($file_name): ?array {
+    public function getFile($file_name): ?array
+    {
         if (isset($_FILES[$file_name])) {
             return $_FILES[$file_name];
         }
         return null;
     }
 
-    #####################################
-    # General getters and setters
-    #####################################
+    /**
+     * Validates a given location string to ensure it is safe and does not lead to external addresses or contain potentially dangerous characters.
+     *
+     * @param string|null $location The location string to validate.
+     * @return string|null Returns the validated location string if it is safe, or null if the input is null.
+     * @throws Exception Throws an exception if the location is invalid, and logs out the user if authentication is set.
+     */
+    public function validateLocation(?string $location): ?string
+    {
+        if ($location === null) {
+            return null;
+        }
+
+        // Checks that the location does not lead to any external address and does not contain any potentially dangerous characters or patterns.
+        if (
+            !preg_match('/^(https?:\/\/|\/\/|javascript:|data:|file:)/i', $location) && !preg_match('/[<>]/', $location)
+        ) {
+            return $location;
+        } else {
+            if ($this->auth != null) {
+                $this->auth->logout();
+            }
+            throw new Exception("Invalid location: $location");
+        }
+    }
+
+    // ####################################
+    // General getters and setters
+    // ####################################
 
     /**
      * Retrieves the current action associated with the request.
      *
-     * @return string The action name.
+     * @return string|null The action name, or null if not set.
      */
     public function getAction()
     {
@@ -174,8 +198,9 @@ class Request
      * @param string $action The name of the action to set.
      * @return void
      */
-    public function setAction(String $action)
+    public function setAction(string $action)
     {
+        $action = $this->validateLocation($action);
         $this->action = $action;
     }
 
@@ -206,8 +231,9 @@ class Request
      * @param string $location The location to be set as the success location.
      * @return void
      */
-    public function onSuccess(String $location)
+    public function onSuccess(string $location)
     {
+        $location = $this->validateLocation($location);
         $this->success_location = $location;
     }
 
@@ -217,8 +243,9 @@ class Request
      * @param string $location The location to redirect or handle errors.
      * @return void
      */
-    public function onError(String $location)
+    public function onError(string $location)
     {
+        $location = $this->validateLocation($location);
         $this->error_location = $location;
     }
 

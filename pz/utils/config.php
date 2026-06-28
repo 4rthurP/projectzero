@@ -3,11 +3,12 @@
 namespace pz;
 
 use DateTimeZone;
-use Monolog\Level;
 use Dotenv\Dotenv;
 use Exception;
+use Monolog\Level;
 
-class Config {
+class Config
+{
     private static ?Config $instance = null;
     private array $config;
 
@@ -29,17 +30,19 @@ class Config {
         'USER_SESSION_RENEWAL_ENABLED' => true,
         'USER_SESSION_RENEWAL_MAX' => 3,
         'USER_BAN_TIME' => 3600,
-        'USER_ATTEMPS_THRESHOLD' => 5,
+        'USER_ATTEMPTS_THRESHOLD' => 5,
         'USER_RECENT_ATTEMPT_TIME' => 5,
     ];
 
-    private function __construct() {
+    private function __construct()
+    {
         $dotenv = Dotenv::createImmutable(__DIR__, '../../.env');
         $dotenv->load();
         $this->config = $_ENV;
     }
 
-    public static function getInstance(): Config {
+    public static function getInstance(): Config
+    {
         if (self::$instance === null) {
             self::$instance = new Config();
         }
@@ -57,20 +60,20 @@ class Config {
      * @param mixed $default The default value to return if the key does not exist. Defaults to null.
      * @return mixed The configuration value associated with the key, or the default value if the key is not found.
      */
-    public static function get(string $key, mixed $default = 'PZ_DEFAULT_VALUE'): mixed {
-        if(isset(self::getInstance()->config[$key])) {
+    public static function get(string $key, mixed $default = 'PZ_DEFAULT_VALUE'): mixed
+    {
+        if (isset(self::getInstance()->config[$key])) {
             $value = self::getInstance()->config[$key];
         } else {
             $value = null;
         }
 
         // If the requested env var does not exist we check if we have a default value
-        if($value === null)
-        {
+        if ($value === null) {
             // If the default value is 'PZ_DEFAULT_VALUE' we check if we have a default value in the static array
-            if($default === 'PZ_DEFAULT_VALUE') {
+            if ($default === 'PZ_DEFAULT_VALUE') {
                 $value = self::$pz_default_values[$key] ?? null;
-            } 
+            }
             // Otherwise, the user provided a default value that we use
             else {
                 $value = $default;
@@ -80,9 +83,9 @@ class Config {
         return $value;
     }
 
-    #########################################################
-    #       Utilities for common configuration values       #
-    #########################################################
+    // ########################################################
+    // Utilities for common configuration values       #
+    // ########################################################
 
     /**
      * Retrieves the current environment setting.
@@ -92,22 +95,25 @@ class Config {
      *
      * @return string|null The environment setting, or null if not available.
      */
-    public static function env(): ?string {
+    public static function env(): ?string
+    {
         $env = self::get('ENV');
-        return (strtolower($env) === 'dev' || strtolower($env) === 'development') ? 'DEV' : 'PROD';
+        return strtolower($env) === 'dev' || strtolower($env) === 'development' ? 'DEV' : 'PROD';
     }
 
-    public static function app_path(): ?string {
+    public static function app_path(): ?string
+    {
         $app_path = self::get('APP_PATH');
         // Ensure the path ends with a slash
         if (substr($app_path, -1) !== '/') {
             $app_path .= '/';
         }
-        
+
         return $app_path;
     }
 
-    public static function modules_path(): string {
+    public static function modules_path(): string
+    {
         $modules_path = self::get('MODULES_PATH', 'modules/');
 
         // Ensure the path ends with a slash
@@ -118,7 +124,8 @@ class Config {
         return Config::app_path() . $modules_path;
     }
 
-    public static function latte_path(): string {
+    public static function latte_path(): string
+    {
         $latte_path = self::get('LATTE_PATH', 'latte/');
 
         // Ensure the path ends with a slash
@@ -129,7 +136,8 @@ class Config {
         return Config::app_path() . $latte_path;
     }
 
-    public static function tz(): ?DateTimeZone {
+    public static function tz(): ?DateTimeZone
+    {
         $tz = self::get('TZ');
 
         if ($tz === null) {
@@ -144,7 +152,8 @@ class Config {
         return new DateTimeZone($tz);
     }
 
-    public static function log_level(): ?Level {
+    public static function log_level(): ?Level
+    {
         $level = self::get('LOG_LEVEL');
         $LOG_LEVELS = [
             'DEBUG' => Level::Debug,
@@ -154,7 +163,7 @@ class Config {
             'ERROR' => Level::Error,
             'CRITICAL' => Level::Critical,
             'ALERT' => Level::Alert,
-            'EMERGENCY' => Level::Emergency
+            'EMERGENCY' => Level::Emergency,
         ];
 
         return $LOG_LEVELS[$level] ?? Level::Info;

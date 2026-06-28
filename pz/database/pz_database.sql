@@ -29,7 +29,7 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `login_attempts` (
   `id` int NOT NULL,
-  `ip` varchar(45) NOT NULL,
+  `user_id` int NOT NULL,
   `created_at` datetime NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -119,7 +119,6 @@ CREATE TABLE `user_roles` (
 CREATE TABLE `user_sessions` (
   `id` int NOT NULL,
   `user_id` int NOT NULL,
-  `ip` varchar(45) NOT NULL,
   `token` varchar(255) NOT NULL,
   `issued_at` datetime NOT NULL,
   `expiration` datetime NOT NULL

@@ -3,18 +3,16 @@
 namespace pz\Controllers;
 
 use Exception;
-
-use pz\Config;
 use pz\Auth;
+use pz\Config;
+use pz\Enums\Routing\ResponseCode;
 use pz\ModelController;
-use pz\Services\UserService;
 use pz\Routing\Request;
 use pz\Routing\Response;
-use pz\Enums\Routing\ResponseCode;
+use pz\Services\UserService;
 
 class UserController extends ModelController
 {
-
     protected $login_default_success_location = '/index.php';
     protected $login_default_failure_location = '/index.php';
     protected $register_default_success_location = '/index.php';
@@ -29,7 +27,7 @@ class UserController extends ModelController
     public function get_user_infos(Request $request)
     {
         if (!$request->hasUser()) {
-            throw new Exception(Config::env() == "DEV" ? 'User id is not set in the session' : 'User id is not set in the session');
+            throw new Exception('User id is not set in the session');
         }
 
         return $request->user()->toArray();
@@ -41,23 +39,13 @@ class UserController extends ModelController
         $auth->loginFromForm();
 
         if ($auth->isLoggedIn()) {
-            return new Response(
-                true,
-                ResponseCode::Ok,
-                'logged-in',
-                'index.php',
-                [
-                    "user_id" => $auth->user_id,
-                    "session_token" => $_SESSION['user']['session_token'] ?? null,
-                ]
-            );
+            return new Response(true, ResponseCode::Ok, 'logged-in', 'index.php', [
+                'user_id' => $auth->user_id,
+                'session_token' => $_SESSION['user']['session_token'] ?? null,
+            ]);
         }
 
-        return new Response(
-            false,
-            ResponseCode::Unauthorized,
-            $auth->getError(),
-        );
+        return new Response(false, ResponseCode::Unauthorized, $auth->getError());
     }
 
     public function register(Request $request): Response
@@ -85,18 +73,14 @@ class UserController extends ModelController
                     false,
                     ResponseCode::Unauthorized,
                     'missing-credential',
-                    message:'No credential provided',
+                    message: 'No credential provided',
                 );
             }
-                
+
             $auth = new Auth($request->data());
             $auth->loginFromSessionToken($credential);
             if (!$auth->isLoggedIn()) {
-                return new Response(
-                    false,
-                    ResponseCode::Unauthorized,
-                    $auth->getError(),
-                );
+                return new Response(false, ResponseCode::Unauthorized, $auth->getError());
             }
         }
 
@@ -104,14 +88,8 @@ class UserController extends ModelController
         $request->setAuth($auth);
 
         // Route will see the request is authenticated and will send a new nonce back to the client for the next request.
-        return new Response(
-            true,
-            ResponseCode::Ok,
-            'retrieved-nonce',
-            message: 'Nonce retrieved successfully',
-        );
+        return new Response(true, ResponseCode::Ok, 'retrieved-nonce', message: 'Nonce retrieved successfully');
     }
-
 
     public function logout(): Response
     {

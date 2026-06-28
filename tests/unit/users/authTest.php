@@ -3,14 +3,13 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\Depends;
-use pz\Test\Ressources\DummyAuth;
-
+use PHPUnit\Framework\TestCase;
+use pz\Config;
 use pz\database\Database;
 use pz\database\Query;
 use pz\Models\User;
-use pz\Config;
+use pz\Test\Ressources\DummyAuth;
 
 final class authTest extends TestCase
 {
@@ -20,7 +19,8 @@ final class authTest extends TestCase
     private DummyAuth $auth;
     private DummyAuth $incorrect_auth;
 
-    public static function incorrectCredentialsProvider(): array {
+    public static function incorrectCredentialsProvider(): array
+    {
         return [
             'wrong username' => [['username' => 'wronguser', 'password' => 'testpassword']],
             'wrong password' => [['username' => 'testuser', 'password' => 'wrongpassword']],
@@ -28,14 +28,13 @@ final class authTest extends TestCase
         ];
     }
 
-    public function testUserRegistration(): void {
+    public function testUserRegistration(): void
+    {
         $this->AssertInstanceOf(User::class, $this->added_user);
         $this->assertTrue($this->added_user->isValid());
-        
+
         // Check the registration was successful by retrieving the user from the database
-        $user_in_db = Query::from("users")
-            ->where('username', $this->user_data['username'])
-            ->first();
+        $user_in_db = Query::from('users')->where('username', $this->user_data['username'])->first();
 
         $this->assertNotNull($user_in_db);
         $this->assertEquals($this->user_data['username'], $user_in_db['username']);
@@ -43,9 +42,10 @@ final class authTest extends TestCase
         $this->assertTrue(password_verify($this->user_data['password'], $user_in_db['password']));
     }
 
-    public function testUserLogin(): void {
+    public function testUserLogin(): void
+    {
         $this->auth->loginFromForm();
-        
+
         $this->assertTrue($this->auth->isLoggedIn());
         $this->assertEquals($this->added_user->getId(), $this->auth->user_id);
 
@@ -57,16 +57,18 @@ final class authTest extends TestCase
         $this->assertNotNull($_SESSION['user']['session_token']);
         $this->assertNotNull($_SESSION['user']['session_expiration']);
         $this->assertNotNull($_SESSION['user']['session_token_issued']);
-        
+
         // Test that the correct cooke infos are set
         $this->assertNotNull($_SESSION['user']['cookie_end']);
+
         // $this->assertEquals($_COOKIE['user_id'], $this->added_user->getId());
         // $this->assertEquals($_COOKIE['user_name'], $this->user_data['username']);
         // $this->assertNotNull($_COOKIE['user_session_token']);
         // $this->assertEquals($_COOKIE['user_session_token'], $this->added_user->getId() . '::' . $_SESSION['user']['session_token']);
     }
 
-    public function testUserLoginCreatedSessionInDatabase(): void {
+    public function testUserLoginCreatedSessionInDatabase(): void
+    {
         $this->auth->loginFromForm();
 
         $session_in_db = Query::from('user_sessions')
@@ -74,7 +76,6 @@ final class authTest extends TestCase
             ->where('ip', '1.1.1.1')
             ->first();
 
-        
         $this->markTestIncomplete('This test has not been implemented yet.');
 
         // $this->assertNotNull($session_in_db);
@@ -84,7 +85,8 @@ final class authTest extends TestCase
     }
 
     #[DataProvider('incorrectCredentialsProvider')]
-    public function testIncorrectCredentialsDoesNotWork(): void {
+    public function testIncorrectCredentialsDoesNotWork(): void
+    {
         $this->incorrect_auth->loginFromForm();
 
         $this->assertFalse($this->incorrect_auth->isValid());
@@ -94,13 +96,12 @@ final class authTest extends TestCase
         $this->assertEquals('login-failed', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered
-        $attemps = Query::from('login_attempts')
-            ->where('ip', '1.1.1.2')
-            ->fetch();
-        $this->assertCount(1, $attemps);
+        $attempts = Query::from('login_attempts')->where('ip', '1.1.1.2')->fetch();
+        $this->assertCount(1, $attempts);
     }
-    
-    public function testTooRapidLoginAttemptsAreBlocked(): void {
+
+    public function testTooRapidLoginAttemptsAreBlocked(): void
+    {
         $this->incorrect_auth->loginFromForm();
         $this->incorrect_auth->loginFromForm();
         $this->auth->loginFromForm();
@@ -112,21 +113,21 @@ final class authTest extends TestCase
         // $this->assertFalse($this->auth->isAuthenticated());
         // $this->assertNull($this->auth->user_id);
         // $this->assertEquals('login-failed', $this->auth->getError());
-
         // // Check that a failed login attempt was registered
-        // $attemps = Query::from('login_attempts')
+        // $attempts = Query::from('login_attempts')
         //     ->where('ip', '1.1.1.2')
         //     ->fetch();
-        // $this->assertCount(2, $attemps);
+        // $this->assertCount(2, $attempts);
     }
 
-    public function testTooManyLoginAttemptsAreBlocked(): void {
+    public function testTooManyLoginAttemptsAreBlocked(): void
+    {
         // Simulate too many login attempts
-        $attempts_limit = (int)Config::get('USER_ATTEMPS_THRESHOLD', 5);
-        
-        for ($i = 0; $i < $attempts_limit + 1; $i++) {
+        $attempts_limit = (int) Config::get('USER_ATTEMPTS_THRESHOLD', 5);
+
+        for ($i = 0; $i < ($attempts_limit + 1); $i++) {
             $this->incorrect_auth->loginFromForm();
-            sleep((int)Config::get('USER_RECENT_ATTEMPT_TIME')); // Simulate rapid attempts
+            sleep((int) Config::get('USER_RECENT_ATTEMPT_TIME')); // Simulate rapid attempts
         }
 
         $this->assertFalse($this->incorrect_auth->isValid());
@@ -136,19 +137,17 @@ final class authTest extends TestCase
         $this->assertEquals('unauthorized-login', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered
-        $attemps = Query::from('login_attempts')
-            ->where('ip', '1.1.1.2')
-            ->fetch();
-        $this->assertTrue(count($attemps) >= $attempts_limit);
-    }    
+        $attempts = Query::from('login_attempts')->where('ip', '1.1.1.2')->fetch();
+        $this->assertTrue(count($attempts) >= $attempts_limit);
+    }
 
     protected function setUp(): void
     {
         $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../.env');
         $dotenv->load();
         // Force the environment to use the test database since we cannot otherwise choose which database is used by models
-        $_ENV['DB_NAME'] = "pz_test";
-        $_ENV['LOG_LEVEL'] = "CRITICAL";
+        $_ENV['DB_NAME'] = 'pz_test';
+        $_ENV['LOG_LEVEL'] = 'CRITICAL';
 
         $this->db = new Database($_ENV['DB_NAME']);
         $this->cleanDB();
@@ -162,9 +161,9 @@ final class authTest extends TestCase
         $user = new User();
         $user->create($this->user_data);
         $this->added_user = $user;
-        
+
         $this->auth = new DummyAuth($this->user_data);
-        $this->auth->setIp("1.1.1.1");
+        $this->auth->setIp('1.1.1.1');
 
         $this->incorrect_auth = new DummyAuth([
             'username' => 'wronguser',
@@ -172,7 +171,7 @@ final class authTest extends TestCase
         ]);
         $this->incorrect_auth->setIp('1.1.1.2');
     }
-    
+
     protected function tearDown(): void
     {
         $this->cleanDB();
