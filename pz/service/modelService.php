@@ -122,6 +122,19 @@ class ModelService extends Service {
         return $this->object;
     }
 
+    public function set(string $key, mixed $value): ?Model {
+        if(!$this->hasValidObject()) {
+            return $this->error("no-model-loaded");
+        }
+
+        $this->object->set($key, $value, true);
+        
+        if(!$this->object->isValid()) {
+            $this->error("invalid-data");
+        }
+        return $this->object;
+    }
+
     public function checkModelRight(string $right): ?Privacy {
         $object = new $this->model_class;
         if($right == 'view') {
