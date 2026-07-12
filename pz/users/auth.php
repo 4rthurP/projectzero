@@ -20,7 +20,7 @@ class Auth
     protected bool $is_logged_in = false;
     protected bool $is_authenticated = false;
 
-    protected string $session_token;
+    protected ?string $session_token;
     protected int $session_id;
     protected int $session_token_expiration;
     protected int $session_token_issued_at;
@@ -149,7 +149,7 @@ class Auth
             return $this->failedLoginAttempt('Invalid session.');
         }
         // Finds the user based on the given user ID
-        $this->user = $this->user_model::find($this->user_id);
+        $this->user = $this->user_model::find($decode_session_token[1]);
         if ($this->user == null) {
             // User does not exist
             return $this->failedLoginAttempt('Invalid session.');
@@ -188,8 +188,6 @@ class Auth
     /**
      * Internal method to log in the user by setting session and cookie data.
      *
-     * @param bool $load_session_token Optional. Determines whether to load the session token for the user. Defaults to true.
-     *                                 Used when logging in from a session token to avoid creating a new session token.
      * @return static Returns the current instance of the class for method chaining.
      *
      * This method performs the following actions:
@@ -428,7 +426,7 @@ class Auth
 
         self::cookie(
             'user_session_token',
-            $this->user->getId() . '::' . $this->session_id . '::' . $this->session_token,
+            $this->getSessionToken(),
             $this->session_token_expiration,
         );
     }
@@ -439,10 +437,6 @@ class Auth
      * This method evaluates whether the user's session is nearing expiration and
      * determines if it can be extended based on the configured session renewal settings.
      * If renewal is possible, the session expiration time is updated in the database.
-     *
-     * @param string $token The session token to be set for the user.
-     * @param int $expiration The expiration timestamp for the session token.
-     * @param int $issued_at The timestamp when the session token was issued.
      *
      * @return bool Returns true if the session was renewed, false otherwise.
      *
@@ -705,6 +699,14 @@ class Auth
     public function getNonceExpiration(): ?Datetime
     {
         return $this->nonce?->expiration();
+    }
+
+    public function getSessionToken(): ?string
+    {
+        if (!$this->is_logged_in) {
+            return null;
+        }
+        return $this->user->getId() . '::' . $this->session_id . '::' . $this->session_token;
     }
 
     public function getError(): ?string

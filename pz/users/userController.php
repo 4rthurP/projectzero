@@ -41,7 +41,7 @@ class UserController extends ModelController
         if ($auth->isLoggedIn()) {
             return new Response(true, ResponseCode::Ok, 'logged-in', 'index.php', [
                 'user_id' => $auth->user_id,
-                'session_token' => $_SESSION['user']['session_token'] ?? null,
+                'session_token' => $auth->getSessionToken(),
             ]);
         }
 
