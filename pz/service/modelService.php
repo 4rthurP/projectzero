@@ -59,6 +59,19 @@ class ModelService extends Service {
     }
 
     /**
+     * Helper method to set the loaded object and its ID in the ModelService.
+     * 
+     * @param Model $object
+     * @return Model The loaded object.
+     */
+    protected function setObject(Model $object): Model {
+        $this->object = $object;
+        $this->object_id = $object->getId();
+
+        return $this->object;
+    }
+
+    /**
      * Loads a model based on the provided request and checks user rights if specified.
      *
      * @param int|string $id The ID of the model to load.
@@ -92,10 +105,7 @@ class ModelService extends Service {
             }
         }
 
-        $this->object = $object;
-        $this->object_id = $object->getId();
-        
-        return $object;
+        return $this->setObject($object);
     }
 
     public function create(Array $data): ?Model {
@@ -106,7 +116,11 @@ class ModelService extends Service {
         $model_class = $this->model_class;
         $model = new $model_class;
         $model->create($data);
-        return $model;
+
+        if(!$model->isValid()) {
+            return $this->error("invalid-data");
+        }
+        return $this->setObject($model);
     }
 
     public function update(Array $data): ?Model {
@@ -117,7 +131,7 @@ class ModelService extends Service {
         $this->object->update($data);
 
         if(!$this->object->isValid()) {
-            $this->error("invalid-data");
+            return $this->error("invalid-data");
         }
         return $this->object;
     }
@@ -130,9 +144,24 @@ class ModelService extends Service {
         $this->object->set($key, $value, true);
         
         if(!$this->object->isValid()) {
-            $this->error("invalid-data");
+            return $this->error("invalid-data");
         }
         return $this->object;
+    }
+
+    public function findOrCreate(array $attributes_to_find, array $attributes_to_create = [], bool $load_relations_if_found = false): ?Model {
+        if($this->object !== null) {
+            return $this->error("model-already-loaded");
+        }
+
+        $model_class = $this->model_class;
+        $model = new $model_class;
+        $object = $model->findOrCreate($attributes_to_find, $attributes_to_create, $load_relations_if_found);
+
+        if(!$object->isValid()) {
+            return $this->error("invalid-data");
+        }
+        return $this->setObject($object);
     }
 
     public function checkModelRight(string $right): ?Privacy {

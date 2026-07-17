@@ -478,13 +478,13 @@ abstract class AbstractModelAttribute
         }
         
         if($this->type === AttributeType::ID) {
-            return $this->target_column .' INT AUTO_INCREMENT PRIMARY KEY';
-        } 
+            return '`' . $this->target_column . '` INT AUTO_INCREMENT PRIMARY KEY';
+        }
         if($this->type === AttributeType::UUID) {
-            return $this->target_column .' CHAR(36) PRIMARY KEY';
+            return '`' . $this->target_column . '` CHAR(36) PRIMARY KEY';
         }
 
-        $field = $this->target_column . ' ' . $this->type->SQLType();
+        $field = '`' . $this->target_column . '` ' . $this->type->SQLType();
         if($this->is_required) {
             $field .= ' NOT NULL';
         }

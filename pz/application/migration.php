@@ -6,6 +6,8 @@ use pz\database\Database;
 use pz\Config;
 use pz\Log;
 use pz\Version;
+use pz\Model;
+use pz\AbstractModelAttribute;
 
 class Migration
 {
@@ -172,5 +174,137 @@ class DbMigration
             $sql_query = "INSERT INTO `{$this->table}` (`$columns_list`) VALUES ($placeholders);";
             $this->db->execute($sql_query, $values);
         }
+    }
+}
+
+/**
+ * Model-aware migration helper.
+ *
+ * Sits on top of DbMigration and speaks in model attribute names instead of raw
+ * columns. Column DDL is always derived from the attribute's own getSQLField(),
+ * so a migration cannot drift from the model definition.
+ */
+class ModelMigration
+{
+    protected Model $model;
+    protected DbMigration $db;
+    public string $table;
+
+    public function __construct(Model $model)
+    {
+        $this->model = $model;
+        $this->table = $model->getModelTable();
+        $this->db = new DbMigration($this->table);
+    }
+
+    /**
+     * Creates the model's table from its attribute definitions.
+     * The id column is declared first, mirroring Model::generateTableForModel().
+     */
+    public function createTable(): void
+    {
+        $id_key = $this->model->getIdKey();
+        $fields = [];
+
+        $id_attribute = $this->resolveColumn($id_key);
+        $fields[] = $id_attribute->getSQLField();
+
+        foreach ($this->model->getAttributes() as $name => $attribute) {
+            if ($name === $id_key || !$this->isStoredColumn($attribute)) {
+                continue;
+            }
+            $fields[] = $attribute->getSQLField();
+        }
+
+        $columns = implode(', ', $fields);
+        $this->db->runSql("CREATE TABLE IF NOT EXISTS `{$this->table}` ($columns) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+    }
+
+    /**
+     * Drops the model's table.
+     */
+    public function dropTable(): void
+    {
+        $this->db->dropTable();
+    }
+
+    /**
+     * Adds the column backing a model attribute, using the attribute's own SQL definition.
+     *
+     * @param string $name The model attribute name.
+     * @param string|null $after Optional column to place the new column after.
+     */
+    public function addAttribute(string $name, ?string $after = null): void
+    {
+        $attribute = $this->resolveColumn($name);
+        $sql = "ALTER TABLE `{$this->table}` ADD COLUMN {$attribute->getSQLField()}";
+        if ($after !== null) {
+            $sql .= " AFTER `$after`";
+        }
+        $this->db->runSql($sql . ';');
+    }
+
+    /**
+     * Drops the column backing a model attribute.
+     */
+    public function removeAttribute(string $name): void
+    {
+        $attribute = $this->resolveColumn($name);
+        $this->db->dropColumn($attribute->target_column);
+    }
+
+    /**
+     * Renames the column backing a model attribute to match the current model definition.
+     * The attribute (under its new name) must already exist in the model, as its current
+     * SQL definition is used to restate the column type required by CHANGE COLUMN.
+     *
+     * @param string $oldColumn The existing column name in the database.
+     * @param string $newName The model attribute name to rename the column to.
+     */
+    public function renameAttribute(string $oldColumn, string $newName): void
+    {
+        $attribute = $this->resolveColumn($newName);
+        $this->db->runSql("ALTER TABLE `{$this->table}` CHANGE COLUMN `$oldColumn` {$attribute->getSQLField()};");
+    }
+
+    /**
+     * Changes an existing column to match the model attribute's current type/constraints.
+     */
+    public function changeAttributeType(string $name): void
+    {
+        $attribute = $this->resolveColumn($name);
+        $this->db->runSql("ALTER TABLE `{$this->table}` MODIFY COLUMN {$attribute->getSQLField()};");
+    }
+
+    /**
+     * Resolves a model attribute by name and ensures it maps to a real column in this table.
+     *
+     * @throws \Exception If the attribute is unknown or is not stored in this table
+     *                    (e.g. inversed or link-through relations).
+     */
+    protected function resolveColumn(string $name): AbstractModelAttribute
+    {
+        $attributes = $this->model->getAttributes();
+        if (!isset($attributes[$name])) {
+            throw new \Exception("The attribute '$name' does not exist on model " . $this->model::getName());
+        }
+
+        $attribute = $attributes[$name];
+        if (!$this->isStoredColumn($attribute)) {
+            throw new \Exception("The attribute '$name' is not stored as a column in table `{$this->table}`");
+        }
+        return $attribute;
+    }
+
+    /**
+     * Whether the attribute is backed by a column in this model's own table
+     * (mirrors the filtering in Model::getModelFieldsInDB()).
+     */
+    protected function isStoredColumn(AbstractModelAttribute $attribute): bool
+    {
+        if ($attribute->model_table !== $this->table) {
+            return false;
+        }
+        return !($attribute->is_link && ($attribute->is_inversed || $attribute->is_link_through));
     }
 }
