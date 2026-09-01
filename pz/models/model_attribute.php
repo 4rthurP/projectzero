@@ -163,13 +163,13 @@ class ModelAttribute extends AbstractModelAttribute
             throw new Exception("Object ID not set");
         }
 
-        $set_clauses = ["$this->target_column = ?"];
+        $set_clauses = ["`$this->target_column` = ?"];
         $values = [$this->value];
         $types = "s";
 
         if ($this->updated_at_column) {
             $datetime = new DateTime("now", Config::tz());
-            $set_clauses[] = "$this->updated_at_column = ?";
+            $set_clauses[] = "`$this->updated_at_column` = ?";
             $values[] = $datetime->format('Y-m-d H:i:s');
             $types .= "s";
         }
@@ -178,7 +178,7 @@ class ModelAttribute extends AbstractModelAttribute
         $types .= "s";
 
         $set_clause = implode(", ", $set_clauses);
-        Database::execute("UPDATE $this->model_table SET $set_clause WHERE $this->model_id_key = ?", $types, ...$values);
+        Database::execute("UPDATE $this->model_table SET $set_clause WHERE `$this->model_id_key` = ?", $types, ...$values);
 
         return $this;
     }

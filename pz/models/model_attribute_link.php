@@ -247,21 +247,21 @@ class ModelAttributeLink extends AbstractModelAttribute
                 $target_id = $this->value[$this->target_id_key];
             }
 
-            $set_clauses = ["$this->target_column = ?"];
+            $set_clauses = ["`$this->target_column` = ?"];
             $values = [$target_id];
             $types = "s";
-            
+
             if ($this->updated_at_column) {
-                $set_clauses[] = "$this->updated_at_column = ?";
+                $set_clauses[] = "`$this->updated_at_column` = ?";
                 $values[] = $datetime;
                 $types .= "s";
             }
-            
+
             $values[] = $this->object_id;
             $types .= "s";
-            
+
             $set_clause = implode(", ", $set_clauses);
-            Database::execute("UPDATE $this->model_table SET $set_clause WHERE $this->model_id_key = ?", $types, ...$values);
+            Database::execute("UPDATE $this->model_table SET $set_clause WHERE `$this->model_id_key` = ?", $types, ...$values);
             
             return $this;
         } 
@@ -307,21 +307,21 @@ class ModelAttributeLink extends AbstractModelAttribute
      */
     private function updateTargetTable($value, $target_id, $datetime): void
     {
-        $set_clauses = ["$this->target_column = ?"];
+        $set_clauses = ["`$this->target_column` = ?"];
         $values = [$value];
         $types = "s";
-        
+
         if ($this->target_updated_at_column) {
-            $set_clauses[] = "$this->target_updated_at_column = ?";
+            $set_clauses[] = "`$this->target_updated_at_column` = ?";
             $values[] = $datetime;
             $types .= "s";
         }
-        
+
         $values[] = $target_id;
         $types .= "s";
-        
+
         $set_clause = implode(", ", $set_clauses);
-        Database::execute("UPDATE $this->target_table SET $set_clause WHERE $this->target_id_key = ?", $types, ...$values);
+        Database::execute("UPDATE $this->target_table SET $set_clause WHERE `$this->target_id_key` = ?", $types, ...$values);
     }
 
     /**

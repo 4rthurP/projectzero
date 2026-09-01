@@ -41,6 +41,24 @@ class Query
     protected array $distinct_values = [];
 
     /**
+     * Wraps a bare or dotted column/table identifier (e.g. 'name' or 'table.column') in backticks
+     * so a reserved SQL keyword used as a column name (e.g. a column literally named `group`)
+     * doesn't break the query. Anything that isn't a simple identifier - '*', or a raw SQL
+     * expression like an aggregate call or alias - is left untouched.
+     *
+     * @param string $identifier The column, table, or dotted table.column reference to quote.
+     * @return string The quoted identifier, or the original string if it isn't a simple identifier.
+     */
+    public static function quoteIdentifier(string $identifier): string
+    {
+        if ($identifier === '*' || !preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/', $identifier)) {
+            return $identifier;
+        }
+
+        return implode('.', array_map(fn($part) => "`$part`", explode('.', $identifier)));
+    }
+
+    /**
      * Creates a new query object for the specified table by running 'Query::from($table)'.
      * This method is the entry point for creating a new query object, other methods can then be chained to this method.
      *
@@ -167,7 +185,7 @@ class Query
         $name = $name == null ? ($column == null ? $aggregate : $aggregate . '_' . $column) : $name;
 
 
-        $this->columns = [strtoupper($aggregate) . '(' . $column . ') AS ' . $name];
+        $this->columns = [strtoupper($aggregate) . '(' . self::quoteIdentifier($column) . ') AS ' . $name];
         $this->isAggregate = true;
         return $this;
     }
@@ -194,7 +212,7 @@ class Query
      */
     public function sum(String $column): ?int
     {
-        $this->columns = ['SUM(' . $column . ') AS SUM'];
+        $this->columns = ['SUM(' . self::quoteIdentifier($column) . ') AS SUM'];
         $this->isAggregate = true;
         $this->buildQuery();
         $this->runQuery();
@@ -209,7 +227,7 @@ class Query
      */
     public function avg(String $column): ?float
     {
-        $this->columns = ['AVG(' . $column . ') AS AVG'];
+        $this->columns = ['AVG(' . self::quoteIdentifier($column) . ') AS AVG'];
         $this->isAggregate = true;
         $this->buildQuery();
         $this->runQuery();
@@ -224,7 +242,7 @@ class Query
      */
     public function min(String $column): mixed
     {
-        $this->columns = ['MIN(' . $column . ') AS MIN'];
+        $this->columns = ['MIN(' . self::quoteIdentifier($column) . ') AS MIN'];
         $this->isAggregate = true;
         $this->buildQuery();
         $this->runQuery();
@@ -239,7 +257,7 @@ class Query
      */
     public function max(String $column): mixed
     {
-        $this->columns = ['MAX(' . $column . ') AS MAX'];
+        $this->columns = ['MAX(' . self::quoteIdentifier($column) . ') AS MAX'];
         $this->isAggregate = true;
         $this->buildQuery();
         $this->runQuery();
@@ -528,12 +546,15 @@ class Query
             $this->columns = ['*'];
         }
 
-        $columns = implode(', ', $this->columns);
+        $columns = implode(', ', array_map([self::class, 'quoteIdentifier'], $this->columns));
 
-        $query = "SELECT $columns FROM $this->table";
+        $query = "SELECT $columns FROM " . self::quoteIdentifier($this->table);
 
         foreach ($this->joins as $join) {
-            $query .= " {$join['type']->value} {$join['table']} ON {$this->table}.{$join['column1']} = {$join['table']}.{$join['column2']}";
+            $joined_table = self::quoteIdentifier($join['table']);
+            $left = self::quoteIdentifier("$this->table.{$join['column1']}");
+            $right = self::quoteIdentifier("{$join['table']}.{$join['column2']}");
+            $query .= " {$join['type']->value} $joined_table ON $left = $right";
         }
 
         if (count($this->whereGroups) > 0) {
@@ -552,13 +573,13 @@ class Query
         }
 
         if(count($this->groupBy) > 0) {
-            $query .= " GROUP BY " . implode(', ', $this->groupBy);
+            $query .= " GROUP BY " . implode(', ', array_map([self::class, 'quoteIdentifier'], $this->groupBy));
         }
 
         if (count($this->orderBy) > 0) {
             $query .= " ORDER BY ";
             foreach ($this->orderBy as $order) {
-                $query .= $order['column'] . ' ' . ($order['ascend'] ? 'ASC' : 'DESC') . ', ';
+                $query .= self::quoteIdentifier($order['column']) . ' ' . ($order['ascend'] ? 'ASC' : 'DESC') . ', ';
             }
             $query = rtrim($query, ', ');
         }

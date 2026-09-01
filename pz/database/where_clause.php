@@ -72,7 +72,7 @@ class WhereClause
     {
         $link = $isFirst ? '' : ' ' . $this->link->value;
 
-        $clause = $link . ' ' . $this->column . ' ';
+        $clause = $link . ' ' . Query::quoteIdentifier($this->column) . ' ';
 
         if ($this->operator == QueryOperator::IN) {
             if (!is_array($this->values) || count($this->values) == 0) {

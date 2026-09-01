@@ -684,21 +684,21 @@ class Model
 
             if($attribute->is_link) {
                 if(!$attribute->is_inversed && !$attribute->is_link_through) {
-                    $attributes[] = $attribute->target_column;
+                    $attributes[] = "`$attribute->target_column`";
                     $params[] = "?";
                     $values[] = $attribute->getTargetId();
                     $types[] = $attribute->getSQLQueryType();
-                }  
+                }
                 continue;
             }
 
             //The created_at and updated_at attributes are set to the current date
-            //TODO: either add a test to keep the value if it is not empty or remove the possibility inside checkForm 
+            //TODO: either add a test to keep the value if it is not empty or remove the possibility inside checkForm
             if ($attribute->name === $this->timestampCreatedAtName || $attribute->name === $this->timestampUpdatedAtName) {
                 $attribute->create($creation_date);
             }
 
-            $attributes[] = $attribute->target_column;
+            $attributes[] = "`$attribute->target_column`";
             $params[] = "?";
             $values[] = $attribute->getSQLValue();
             $types[] = $attribute->getSQLQueryType();
@@ -777,7 +777,7 @@ class Model
                 }
 
                 // Setting the SQL query for the link attribute
-                $params[] = "$attribute->target_column = ?";
+                $params[] = "`$attribute->target_column` = ?";
                 $values[] = $target_id;
                 $types[] = $attribute->getSQLQueryType();
                 continue;
@@ -788,7 +788,7 @@ class Model
                 $attribute->update($update_date);
             }
 
-            $params[] = "$attribute->target_column = ?";
+            $params[] = "`$attribute->target_column` = ?";
             $values[] = $attribute->getSQLValue();
             $types[] = $attribute->getSQLQueryType();
         }
