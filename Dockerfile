@@ -1,4 +1,4 @@
-FROM php:8.4.5-fpm
+FROM php:8.5.10-fpm
 
 # Set build arguments from .env file
 ARG USER_ID=1000
@@ -12,9 +12,10 @@ RUN apt-get update && apt-get install -y \
     libfreetype-dev \
     libjpeg62-turbo-dev \
     libpng-dev \
+    libzip-dev \
     cron \
 && docker-php-ext-configure gd --with-freetype --with-jpeg \
-&& docker-php-ext-install -j$(nproc) gd
+&& docker-php-ext-install -j$(nproc) gd zip
 
 RUN docker-php-ext-install mysqli pdo pdo_mysql calendar && docker-php-ext-enable pdo_mysql
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
