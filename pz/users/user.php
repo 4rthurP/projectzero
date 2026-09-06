@@ -65,10 +65,18 @@ class User extends Model {
     }
 
     private function password($algorithm = PASSWORD_DEFAULT, Array $options = []) {
-        $this->passwordAlgorithm = $algorithm;
-        $options = $options === null ? [] : $options;
-        $this->passwordOptions = $options;
+        $this->setPasswordHashingOptions($algorithm, $options);
         $this->attribute("password", AttributeType::CHAR, true);
+    }
+
+    /**
+     * Split out of password() so a subclass can change the hashing cost (e.g. for faster test
+     * fixtures — see pz\Test\Ressources\FastHashUser) without re-registering the `password`
+     * attribute, which attribute() rejects ("has already been defined") on a second call.
+     */
+    protected function setPasswordHashingOptions($algorithm, ?array $options = []): void {
+        $this->passwordAlgorithm = $algorithm;
+        $this->passwordOptions = $options ?? [];
     }
 
     protected function primaryLoginMethod($method) {

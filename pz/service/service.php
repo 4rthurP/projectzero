@@ -43,7 +43,7 @@ class Service
         ?array $error_data = null,
     ): Response {
         if ($this->hasError()) {
-            return new Response(false, $this->error_code, $this->error_message, $error_data);
+            return new Response(false, $this->error_code, $this->error_message, null, $error_data);
         }
         return new Response(true, ResponseCode::Ok, $success_message ?? 'success', null, $data);
     }

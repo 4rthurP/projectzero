@@ -144,7 +144,7 @@ final class authTest extends TestCase
 
     protected function setUp(): void
     {
-        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../.env');
+        $dotenv = Dotenv\Dotenv::createImmutable(__DIR__, '../../../../.env');
         $dotenv->load();
         // Force the environment to use the test database since we cannot otherwise choose which database is used by models
         $_ENV['DB_NAME'] = 'pz_test';
@@ -184,7 +184,9 @@ final class authTest extends TestCase
     protected function cleanDB(): void
     {
         // DELETE, not TRUNCATE: TRUNCATE is DDL (drops/recreates the table) and costs ~70ms per
-        // table regardless of row count, vs single-digit ms for DELETE on these small tables
+        // table regardless of row count, vs single-digit ms for DELETE on these small tables —
+        // measured directly, see the cellr test harness investigation. FOREIGN_KEY_CHECKS aren't
+        // in play here (no FK-ordering issue across these four tables), so a plain DELETE is safe.
         $this->db->execute('DELETE FROM `users`');
         $this->db->execute('DELETE FROM `user_sessions`');
         $this->db->execute('DELETE FROM `nonces`');
