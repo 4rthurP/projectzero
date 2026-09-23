@@ -34,6 +34,7 @@ final class schedulerTest extends TestCase
         DummyJobHandlerController::$call_count = 0;
         DummyJobHandlerController::$clock_to_advance = null;
         DummyJobHandlerController::$advance_to = null;
+        DummyJobHandlerController::$cancel_after_first_call = false;
     }
 
     protected function tearDown(): void
@@ -240,6 +241,37 @@ final class schedulerTest extends TestCase
         $this->assertSame('completed', $row['status']);
         $this->assertNull($row['locked_at']);
         $this->assertNotNull($row['finished_at']);
+    }
+
+    ############################
+    # Cancellation (JobController::cancel())
+    ############################
+
+    public function testAJobCancelledExternallyMidTickStopsBeingProcessedAndReleasesItsLock(): void
+    {
+        $job = $this->createAdHocJob([
+            'handler_method' => 'process_forever', // never finishes on its own
+        ]);
+
+        // Simulates a JobController::cancel() request landing (from a separate process, hence
+        // writing straight to the row rather than through this $job instance) right after the
+        // handler's first call - the runner should notice before making a second one.
+        DummyJobHandlerController::$cancel_after_first_call = true;
+
+        $scheduler = new Scheduler();
+        $scheduler->setJobTimeBudget(30); // plenty left - only the cancel should stop this
+        $this->invokePrivate($scheduler, 'runPendingJobs', [new DateTime('now', Config::tz())]);
+
+        $this->assertEquals(1, DummyJobHandlerController::$call_count);
+
+        $row = $this->reloadJobRow($job->getId());
+        $this->assertSame('cancelled', $row['status']);
+        $this->assertNull($row['locked_at']);
+        $this->assertEquals(1, (int) $row['processed']);
+
+        // A cancelled job is never claimed again.
+        $claimed = $this->invokePrivate($scheduler, 'claimNextJob');
+        $this->assertNull($claimed);
     }
 
     ############################

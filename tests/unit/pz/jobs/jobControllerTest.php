@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use pz\Config;
+use pz\Enums\Routing\Method;
 use pz\Enums\Routing\ModelEndpoint;
 use pz\Enums\Routing\ResponseCode;
 use pz\Controllers\JobController;
 use pz\Services\JobService;
 use pz\Models\Job;
 use pz\Models\User;
+use pz\Routing\Request;
+use pz\Test\Ressources\DummyAuth;
+use pz\Test\Ressources\FastHashUser;
 use pz\database\Database;
+use pz\database\Query;
 
 /**
  * These tests exercise JobService::loadModel() directly rather than going through
@@ -42,6 +47,12 @@ final class jobControllerTest extends TestCase
     protected function tearDown(): void
     {
         $this->db->execute('DELETE FROM jobs');
+        // cancel() tests log in real fixture users (loadModel()'s own ownership tests use an
+        // in-memory-only User, but a real Auth/loginFromForm() round trip needs an actual row).
+        $this->db->execute('DELETE FROM `users`');
+        $this->db->execute('DELETE FROM `user_sessions`');
+        $this->db->execute('DELETE FROM `nonces`');
+        $this->db->execute('DELETE FROM `login_attempts`');
         unset($_SESSION['user']);
     }
 
@@ -90,6 +101,88 @@ final class jobControllerTest extends TestCase
         $this->assertNull($loaded);
         $this->assertTrue($service->hasError());
         $this->assertEquals(ResponseCode::NotFound, $service->error_code);
+    }
+
+    // ---- cancel() --------------------------------------------------------------------------
+
+    public function testCancelMarksAPendingJobCancelled(): void
+    {
+        $owner = $this->createRealUser();
+        $job = $this->createAdHocJob($owner->getId());
+        $request = $this->makeAuthenticatedRequest($owner, ['id' => $job->getId()]);
+
+        $response = (new JobController())->cancel($request);
+
+        $this->assertTrue($response->success);
+        $row = Query::from('jobs')->where('id', $job->getId())->first();
+        $this->assertSame('cancelled', $row['status']);
+        $this->assertNotNull($row['finished_at']);
+    }
+
+    public function testCancelRefusesAJobThatAlreadyFinished(): void
+    {
+        $owner = $this->createRealUser();
+        $job = $this->createAdHocJob($owner->getId());
+        $job->set('status', 'completed', true);
+        $request = $this->makeAuthenticatedRequest($owner, ['id' => $job->getId()]);
+
+        $response = (new JobController())->cancel($request);
+
+        $this->assertFalse($response->success);
+        $row = Query::from('jobs')->where('id', $job->getId())->first();
+        $this->assertSame('completed', $row['status']); // untouched
+    }
+
+    public function testCancelRefusesAJobBelongingToADifferentUser(): void
+    {
+        $owner = $this->createRealUser();
+        $other = $this->createRealUser();
+        $job = $this->createAdHocJob($owner->getId());
+        $request = $this->makeAuthenticatedRequest($other, ['id' => $job->getId()]);
+
+        try {
+            $response = (new JobController())->cancel($request);
+        } catch (\Exception $exception) {
+            // Same "either refused gracefully or rethrown in DEV" nuance as
+            // testLoadModelRefusesAJobBelongingToADifferentUser() above - either way is a refusal.
+            $this->assertStringContainsString('invalid-id', $exception->getMessage());
+            return;
+        }
+
+        $this->assertFalse($response->success);
+    }
+
+    /**
+     * Unlike makeInMemoryUser() below, this inserts a real row: a genuine Auth/loginFromForm()
+     * round trip (needed to build a real Request via makeAuthenticatedRequest()) authenticates
+     * against the database, not an in-memory object.
+     */
+    private function createRealUser(): User
+    {
+        $username = 'job_test_' . bin2hex(random_bytes(6));
+        $user = new FastHashUser();
+        $user->create([
+            'username' => $username,
+            'password' => 'testpassword123',
+            'email' => $username . '@example.com',
+        ]);
+        if (!$user->isValid()) {
+            $this->fail('Failed to create fixture user: ' . json_encode($user->getFormMessages()));
+        }
+        return $user;
+    }
+
+    private function makeAuthenticatedRequest(User $user, array $data = []): Request
+    {
+        $auth = new DummyAuth(['username' => $user->get('username'), 'password' => 'testpassword123']);
+        $auth->loginFromForm();
+
+        $request = (new Request(Method::POST, $data))->setAuth($auth);
+        // Model::findOrCreate()/startQuery() for a PROTECTED model reads this directly rather than
+        // going through a Request - see pz/models/model.php.
+        $_SESSION['user']['id'] = (int) $user->getId();
+
+        return $request;
     }
 
     /**

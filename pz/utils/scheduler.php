@@ -407,6 +407,13 @@ class Scheduler {
      * @return bool Returns true if the token is valid, false otherwise.
      */
     private function isValidToken(string $token): bool {
+        // Config::getInstance() is what actually runs Dotenv::load() - under a bare CLI/cron
+        // invocation (process_jobs.php, schedule.php) nothing else touches Config before this
+        // check runs, so without this, $_ENV['SCHEDULER_TOKEN'] would still be empty here even
+        // though the real value is sitting right there in .env, and every single cron tick would
+        // throw "Invalid token" before ever reaching a job. A plain FPM request has usually already
+        // constructed Config for unrelated reasons, so this is a no-op there.
+        Config::getInstance();
         $valid_token = $_ENV['SCHEDULER_TOKEN'] ?? '';
         return $token === $valid_token;
     }
@@ -447,6 +454,17 @@ class Scheduler {
             }
 
             while ($this->secondsSince($tick_start) < $this->job_time_budget_seconds) {
+                if ($this->jobWasCancelledExternally($job)) {
+                    // A cancel request (JobController::cancel()) writes straight to the row from
+                    // its own request, with no way to interrupt a handler call already in flight -
+                    // same one-unit-per-call limitation as the wall-clock check above. Caught here,
+                    // at the same between-units point, instead of trusting the in-memory $job's now
+                    // stale 'running' status and spending more of this tick's budget on a job the
+                    // user already asked to stop.
+                    $job->set('locked_at', null, true); // a clean exit always releases the lock
+                    return;
+                }
+
                 try {
                     $controller = new ($job->get('handler_controller'))();
                     $method = $job->get('handler_method');
@@ -476,6 +494,16 @@ class Scheduler {
             $job->set('locked_at', null, true);
             return;
         }
+    }
+
+    /**
+     * A raw read (not $job->get('status'), which only reflects whatever this same process last
+     * wrote) of this job's current persisted status, so a JobController::cancel() call made from a
+     * completely different request/process while this loop is mid-job gets noticed at all.
+     */
+    private function jobWasCancelledExternally(Job $job): bool {
+        $row = Query::from('jobs')->get('status')->where('id', $job->getId())->first();
+        return ($row['status'] ?? null) === 'cancelled';
     }
 
     /**

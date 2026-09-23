@@ -10,12 +10,24 @@ use pz\Enums\model\AttributeType;
 class Job extends Model {
     public static $name = 'job';
 
+    // Deliberately much shorter than Scheduler's own default 45s tick budget: this runs inside a
+    // php-fpm worker's post-response continuation (register_shutdown_function() after
+    // fastcgi_finish_request()), not a fresh CLI process like the cron fallback gets. Observed
+    // directly: a burst left running that long in that specific context died silently mid-job (no
+    // PHP fatal, no logged exception, no OOM in the container — the worker was simply gone,
+    // confirmed via /proc, with the claimed job's lock left stale) on this deployment. Keeping the
+    // immediate trigger to a handful of seconds (enough for "it started right away," matching what
+    // the single-book sync action already takes end to end) shrinks that window a lot; the cron
+    // fallback's own fresh, isolated process doesn't carry the same risk and is what should do the
+    // bulk of a large job's work regardless.
+    private const IMMEDIATE_PROCESSING_BUDGET_SECONDS = 10;
+
     protected function model() {
         $this->attribute('kind', AttributeType::CHAR, true);             // 'scheduled_task' | 'ad_hoc_job'
         $this->attribute('type', AttributeType::CHAR, true);             // e.g. 'marge.isbn_sync', 'cellr.daily_stats'
         $this->attribute('handler_controller', AttributeType::CHAR, true);
         $this->attribute('handler_method', AttributeType::CHAR, true);
-        $this->attribute('status', AttributeType::CHAR, true, 'pending'); // pending | running | completed | failed
+        $this->attribute('status', AttributeType::CHAR, true, 'pending'); // pending | running | completed | failed | cancelled
         $this->attribute('payload', AttributeType::TEXT);                // handler's own state; json_encode/decode by hand
         $this->attribute('total', AttributeType::INT);                   // nullable: not always known up front
         $this->attribute('processed', AttributeType::INT, true, '0');
@@ -71,7 +83,7 @@ class Job extends Model {
                 // job that keeps getting reclaimed tick after tick (e.g. one stuck retrying a
                 // slow/rate-limited external API) would starve the job the current user is
                 // actually watching, leaving it at 0 progress indefinitely.
-                (new Scheduler())->drainPendingJobsNow($job_id);
+                (new Scheduler())->setJobTimeBudget(self::IMMEDIATE_PROCESSING_BUDGET_SECONDS)->drainPendingJobsNow($job_id);
             } catch (\Throwable $exception) {
                 // The triggering request's response was already sent successfully at this point —
                 // this is purely a missed opportunity to get a head start, not a user-visible

@@ -265,10 +265,6 @@ class Model
             $this->initialize();
         }
 
-        if ($this->attributeExists($userKey)) {
-            throw new Exception("The attribute '$userKey' has already been defined");
-        }
-
         if ($this->hasDefinedUserAttribute) {
             throw new Exception("A user attribute has already been defined");
         }
@@ -279,6 +275,10 @@ class Model
             $this->canEdit = Privacy::PUBLIC;
             $this->hasDefinedUserAttribute = true;
             return $this;
+        }
+
+        if ($this->attributeExists($userKey)) {
+            throw new Exception("The attribute '$userKey' has already been defined");
         }
 
         $attribute = new ModelAttribute(

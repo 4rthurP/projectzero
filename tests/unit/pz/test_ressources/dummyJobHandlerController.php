@@ -4,6 +4,7 @@ namespace pz\Test\Ressources;
 
 use pz\Scheduler;
 use pz\Models\Job;
+use pz\database\Database;
 
 /**
  * Ad hoc job handler fixture for Scheduler tests. Each method follows the handler contract:
@@ -22,6 +23,13 @@ class DummyJobHandlerController
      */
     public static ?Scheduler $clock_to_advance = null;
     public static ?\DateTime $advance_to = null;
+
+    /**
+     * When true, process_forever() writes 'cancelled' straight to the row (bypassing $job's own
+     * in-memory state entirely) right after its first call - simulating a JobController::cancel()
+     * request landing, from a separate process, in between two of this same job's units.
+     */
+    public static bool $cancel_after_first_call = false;
 
     /**
      * Processes one unit, advancing `processed` by one, until it reaches `total`.
@@ -48,6 +56,10 @@ class DummyJobHandlerController
 
         if (self::$clock_to_advance !== null && self::$advance_to !== null) {
             self::$clock_to_advance->setCurrentTime(self::$advance_to);
+        }
+
+        if (self::$cancel_after_first_call && self::$call_count === 1) {
+            Database::execute("UPDATE jobs SET status = 'cancelled' WHERE id = ?", 'i', $job->getId());
         }
 
         return true;
