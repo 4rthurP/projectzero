@@ -98,6 +98,45 @@ final class schedulerTest extends TestCase
         $this->assertEquals($job->getId(), $claimed->getId());
     }
 
+    /**
+     * Without a priority id, claimNextJob() always picks the oldest eligible row — which starves
+     * whichever job a user just created and is watching live if an older one is still around (see
+     * Scheduler::drainPendingJobsNow()'s doc comment). $priority_job_id exists specifically so the
+     * job that triggered immediate processing gets claimed ahead of an older backlog.
+     */
+    public function testPriorityJobIdIsClaimedAheadOfAnOlderJob(): void
+    {
+        $older_job = $this->createAdHocJob();
+        usleep(1_000_000); // createAdHocJob()'s created_at has second resolution — force a real gap
+        $newer_job = $this->createAdHocJob();
+
+        $scheduler = new Scheduler();
+        $claimed = $this->invokePrivate($scheduler, 'claimNextJob', [$newer_job->getId()]);
+
+        $this->assertEquals($newer_job->getId(), $claimed->getId());
+
+        // The older job is untouched - claiming the priority job doesn't fall through and grab it
+        // too.
+        $older_row = $this->reloadJobRow($older_job->getId());
+        $this->assertSame('pending', $older_row['status']);
+    }
+
+    /**
+     * A priority id that's no longer claimable (already finished, or raced away by something else)
+     * must not just give up - it should fall back to the normal oldest-first pick instead of
+     * wasting this call's budget doing nothing.
+     */
+    public function testAnAlreadyCompletedPriorityJobFallsBackToTheNormalPick(): void
+    {
+        $older_job = $this->createAdHocJob();
+        $already_done_job = $this->createAdHocJob(['status' => 'completed']);
+
+        $scheduler = new Scheduler();
+        $claimed = $this->invokePrivate($scheduler, 'claimNextJob', [$already_done_job->getId()]);
+
+        $this->assertEquals($older_job->getId(), $claimed->getId());
+    }
+
     ############################
     # Failure policy / retries
     ############################
@@ -201,6 +240,82 @@ final class schedulerTest extends TestCase
         $this->assertSame('completed', $row['status']);
         $this->assertNull($row['locked_at']);
         $this->assertNotNull($row['finished_at']);
+    }
+
+    ############################
+    # runScheduler() / runJobs() / drainPendingJobsNow() — the split entry points
+    ############################
+
+    /**
+     * runScheduler() used to also drain ad hoc jobs in the same tick — split out so an app can run
+     * its recurring tasks on whatever interval suits them (e.g. once a day) without that also
+     * throttling ad hoc job responsiveness to the same interval. Job draining now only happens via
+     * runJobs() (its own cron entry) or drainPendingJobsNow() (triggered immediately on creation —
+     * see pz\Models\Job::create()).
+     */
+    public function testRunSchedulerNoLongerTouchesAdHocJobs(): void
+    {
+        $job = $this->createAdHocJob();
+        $this->withValidCronToken(function () {
+            (new Scheduler())->runScheduler();
+        });
+
+        $row = $this->reloadJobRow($job->getId());
+        $this->assertSame('pending', $row['status']);
+        $this->assertNull($row['locked_at']);
+        $this->assertEquals(0, DummyJobHandlerController::$call_count);
+    }
+
+    public function testRunJobsDrainsAdHocJobsWithAValidToken(): void
+    {
+        $job = $this->createAdHocJob([
+            'handler_method' => 'process_one_unit',
+            'total' => 1,
+            'processed' => 0,
+        ]);
+
+        $this->withValidCronToken(function () {
+            (new Scheduler())->runJobs();
+        });
+
+        $row = $this->reloadJobRow($job->getId());
+        $this->assertSame('completed', $row['status']);
+    }
+
+    public function testRunJobsThrowsWithAnInvalidToken(): void
+    {
+        $_ENV['SCHEDULER_TOKEN'] = 'the-real-token';
+        putenv('CRON_TOKEN=not-the-real-token');
+
+        $this->expectException(\Exception::class);
+        (new Scheduler())->runJobs();
+    }
+
+    public function testDrainPendingJobsNowNeedsNoToken(): void
+    {
+        $job = $this->createAdHocJob([
+            'handler_method' => 'process_one_unit',
+            'total' => 1,
+            'processed' => 0,
+        ]);
+
+        putenv('CRON_TOKEN'); // unset entirely — this is the point: no token is needed at all
+
+        (new Scheduler())->drainPendingJobsNow();
+
+        $row = $this->reloadJobRow($job->getId());
+        $this->assertSame('completed', $row['status']);
+    }
+
+    private function withValidCronToken(callable $callback): void
+    {
+        $_ENV['SCHEDULER_TOKEN'] = 'the-real-token';
+        putenv('CRON_TOKEN=the-real-token');
+        try {
+            $callback();
+        } finally {
+            putenv('CRON_TOKEN');
+        }
     }
 
     ############################

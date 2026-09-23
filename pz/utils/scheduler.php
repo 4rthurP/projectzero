@@ -92,11 +92,45 @@ class Scheduler {
                 $this->saveTaskRun($task['controller'], $task['method'], $task_response->isSuccessful());
             }
         }
+    }
 
-        // Runs after the recurring-task pass, in the same tick, sharing its time budget: a slow ad
-        // hoc job can't starve recurring tasks (it only runs once that pass is done), and recurring
-        // tasks keep running exactly as fast as they do today.
-        $this->runPendingJobs($cron_start_time);
+    /**
+     * Cron-facing entry point for draining ad hoc jobs, meant to be invoked from its own,
+     * frequent, fixed-interval crontab entry (see the consuming app's process_jobs.php) —
+     * deliberately NOT called from runScheduler() above. That used to run both passes from the
+     * same tick, which coupled ad hoc job responsiveness to whatever interval an app configures
+     * for its recurring tasks (e.g. once a day is reasonable for a daily stats job, catastrophic
+     * for "start processing the mass-sync job the user just clicked"). Kept token-checked like
+     * runScheduler(), since this is a new externally-reachable (from cron) entry point.
+     */
+    public function runJobs(): void {
+        if(!$this->isValidToken(getenv('CRON_TOKEN'))) {
+            throw new \Exception('Invalid token');
+        }
+
+        $this->runPendingJobs($this->getCurrentDateTime());
+    }
+
+    /**
+     * Drains ad hoc jobs immediately, in-process, with no token check — unlike runJobs(), this
+     * isn't a new externally-reachable entry point: it's meant to be called from within a request
+     * that already passed its own route's privacy check (see pz\Models\Job::create(), which calls
+     * this right after creating an ad hoc job so it starts processing before the cron fallback
+     * would ever get to it, typically inside a shutdown function registered after
+     * fastcgi_finish_request() so the triggering request's own response isn't delayed by it).
+     *
+     * @param int|null $priority_job_id If given, this job is claimed first (see claimNextJob()),
+     *        ahead of whatever else is pending. Without this, a user who just created a job and is
+     *        watching it live can be starved by an older backlog: claimNextJob() otherwise always
+     *        picks the oldest eligible job, so an unrelated job created an hour ago and still not
+     *        finished (e.g. it kept hitting a slow/rate-limited external API) would keep winning
+     *        every claim, leaving the job actually being watched at 0 progress indefinitely even
+     *        though the system as a whole is doing real work. Once the priority job is claimed (or
+     *        turns out to already be taken/finished), any further budget in this same call falls
+     *        back to normal oldest-first draining, same as before.
+     */
+    public function drainPendingJobsNow(?int $priority_job_id = null): void {
+        $this->runPendingJobs($this->getCurrentDateTime(), $priority_job_id);
     }
 
 
@@ -400,11 +434,14 @@ class Scheduler {
      * like running".
      *
      * @param DateTime $tick_start The time this tick started, captured once in runScheduler().
+     * @param int|null $priority_job_id Claimed first if given (see drainPendingJobsNow()) — only
+     *        for the very first claim of this call; any further budget falls back to oldest-first.
      * @return void
      */
-    private function runPendingJobs(DateTime $tick_start): void {
+    private function runPendingJobs(DateTime $tick_start, ?int $priority_job_id = null): void {
         while ($this->secondsSince($tick_start) < $this->job_time_budget_seconds) {
-            $job = $this->claimNextJob();
+            $job = $this->claimNextJob($priority_job_id);
+            $priority_job_id = null; // only the first claim attempt of this call gets priority
             if ($job === null) {
                 return; // nothing eligible left this tick
             }
@@ -481,13 +518,29 @@ class Scheduler {
      * releasing its lock. A clean exit (budget exhausted, or job completed/failed) always releases
      * the lock itself, so the normal case never waits out that window.
      *
+     * @param int|null $priority_job_id If given, that specific row is tried first (see
+     *        drainPendingJobsNow()'s doc comment for why). If it's not eligible any more (already
+     *        claimed elsewhere, already finished, or just doesn't exist), this falls through to the
+     *        normal oldest-first pick below rather than returning null outright.
      * @return Job|null The claimed job, or null if there was nothing eligible or another tick won
      *                   the race for the candidate row.
      */
-    private function claimNextJob(): ?Job {
+    private function claimNextJob(?int $priority_job_id = null): ?Job {
         $stale_threshold = (clone $this->getCurrentDateTime())
             ->modify('-' . self::STALE_LOCK_MINUTES . ' minutes')
             ->format('Y-m-d H:i:s');
+
+        if ($priority_job_id !== null) {
+            $priority_row = Query::from('jobs')->where('id', $priority_job_id)->first();
+            if ($priority_row !== null) {
+                $job = $this->tryClaim($priority_row, $stale_threshold);
+                if ($job !== null) {
+                    return $job;
+                }
+            }
+            // Not claimable under that id (see above) - fall through to the normal pick instead of
+            // leaving this call's budget unused.
+        }
 
         // Passing a bare `null` (rather than QueryOperator::IS_NULL) for the "locked_at IS NULL"
         // half of this group is intentional, not a style choice: WhereGroup::addQuery() forwards a
@@ -511,23 +564,42 @@ class Scheduler {
             return null;
         }
 
+        return $this->tryClaim($candidate, $stale_threshold);
+    }
+
+    /**
+     * The actual atomic claim: Model::update() only ever builds `UPDATE table SET ... WHERE
+     * id = ?`, with no way to add the extra `AND status = ... AND locked_at ...` condition claiming
+     * needs, so this is a raw conditional UPDATE via Database::execute(), checked for affected-row
+     * count - the one deliberate exception to "always go through the Job model" in this class. Used
+     * for both the priority-id row and the normal oldest-first candidate (see claimNextJob()), so
+     * two overlapping runners (e.g. a cron tick and an immediate in-request trigger, or two
+     * overlapping cron ticks) can't both grab the same row regardless of how it was found.
+     *
+     * @param array $candidate_row A `jobs` row (as returned by a Query) to attempt to claim.
+     * @param string $stale_threshold Formatted datetime; a lock older than this is treated as
+     *        abandoned (see claimNextJob()'s doc comment on STALE_LOCK_MINUTES).
+     * @return Job|null The claimed job, or null if it didn't meet the conditions any more (already
+     *                   claimed elsewhere, finished, or not an ad hoc job at all).
+     */
+    private function tryClaim(array $candidate_row, string $stale_threshold): ?Job {
         $now = $this->getCurrentDateTime()->format('Y-m-d H:i:s');
         $claimed = Database::execute(
             "UPDATE jobs SET status = 'running', locked_at = ?, started_at = COALESCE(started_at, ?)
-             WHERE id = ? AND status IN ('pending','running')
+             WHERE id = ? AND kind = 'ad_hoc_job' AND status IN ('pending','running')
                AND (locked_at IS NULL OR locked_at < ?)",
             'ssis',
             $now,
             $now,
-            $candidate['id'],
+            $candidate_row['id'],
             $stale_threshold,
         );
 
         if ($claimed !== 1) {
-            return null; // lost the race to another tick
+            return null; // lost the race, already finished, or wasn't an eligible ad hoc job
         }
 
-        // Hydrated from the pre-claim SELECT above rather than Job::find(): Job keeps the standard
+        // Hydrated from the pre-claim row rather than Job::find(): Job keeps the standard
         // PROTECTED privacy (per-owner access for JobController::get()), and Model::find() always
         // routes through startQuery(), which requires a logged-in $_SESSION['user']['id'] for a
         // PROTECTED model - there is none in a cron run, so Job::find() would throw here.
@@ -535,7 +607,7 @@ class Scheduler {
         // columns the UPDATE just touched (status/locked_at/started_at) are read back from this
         // object anywhere below, only written.
         $job = new Job();
-        $job->loadFromArray($candidate);
+        $job->loadFromArray($candidate_row);
         return $job;
     }
 
