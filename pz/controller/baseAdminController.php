@@ -47,6 +47,16 @@ class BaseAdminController extends Controller {
         $sql = file_get_contents(__DIR__.'/../database/pz_database.sql');
         $db->conn->multi_query($sql);
 
+        // multi_query() only sends the statements; the result of each one has to be explicitly
+        // drained (store_result() + next_result()) before the connection is safe to reuse, or the
+        // remaining statements in the file are silently never executed. Without this loop, only the
+        // very first CREATE TABLE in pz_database.sql ever actually ran.
+        do {
+            if ($result = $db->conn->store_result()) {
+                $result->free();
+            }
+        } while ($db->conn->more_results() && $db->conn->next_result());
+
         //Then we generate the tables for all the models used in the project (we disables the update_table_if_exist option to only do it once at the end)
         foreach($model_list as $model) {
             $model::generateTableForModel(false, $update_table_if_exist, $drop_tables_if_exist, $force_table_update);

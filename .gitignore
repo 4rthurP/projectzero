@@ -16,3 +16,5 @@ database/structure.sql
 database/queries.log
 database/backups/*
 !database/backups/.gitkeep
+forgejo.local.env
+tests/.phpunit.result.cache
