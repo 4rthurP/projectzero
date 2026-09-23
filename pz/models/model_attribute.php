@@ -164,7 +164,9 @@ class ModelAttribute extends AbstractModelAttribute
         }
 
         $set_clauses = ["`$this->target_column` = ?"];
-        $values = [$this->value];
+        // getSQLValue(), not the raw $this->value: for LIST/DATE/DATETIME attributes $this->value
+        // holds a PHP array/DateTime (see parseValue()), which mysqli can't bind directly.
+        $values = [$this->getSQLValue()];
         $types = "s";
 
         if ($this->updated_at_column) {

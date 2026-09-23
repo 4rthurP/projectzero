@@ -30,6 +30,8 @@ class Auth
 
     protected array $request_data;
 
+    protected ?string $ip = null;
+
     protected ?string $error = null;
     protected ?string $error_message = null;
 
@@ -48,6 +50,9 @@ class Auth
         }
 
         $this->request_data = $request_data;
+        // From the server, not $request_data: the request body is client-controlled and
+        // therefore spoofable, which would defeat IP-based login throttling.
+        $this->ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
         $this->user_model = $user_model;
         $this->user = $this->newUser();
@@ -75,15 +80,17 @@ class Auth
             return $this;
         }
 
+        // Checking security first and by IP, not by user: the throttle exists to slow down
+        // brute-forcing, which includes guessing usernames, so it must apply whether or not the
+        // attempted login name resolves to a real user.
+        if (!$this->checkCanMakeLoginAttempt()) {
+            return $this;
+        }
+
         // Checking if the user exists
         $this->findUser();
         if ($this->user == null) {
             return $this->failedLoginAttempt('This user does not exist.');
-        }
-
-        // Checking security
-        if (!$this->checkCanMakeLoginAttempt()) {
-            return $this;
         }
 
         // Checking password
@@ -214,6 +221,12 @@ class Auth
             $this->createSessionToken();
         }
 
+        $_SESSION['user']['session_token'] = $this->session_token;
+        $_SESSION['user']['session_expiration'] = $this->session_token_expiration;
+        $_SESSION['user']['session_token_issued'] = $this->session_token_issued_at;
+        // Mirrors the expiration of the cookie set in createSessionToken(), not a separate value.
+        $_SESSION['user']['cookie_end'] = $this->session_token_expiration;
+
         return $this;
     }
 
@@ -234,9 +247,10 @@ class Auth
         if ($register_attempt) {
             Database::insert(
                 'login_attempts',
-                ['user_id', 'created_at'],
+                ['user_id', 'ip', 'created_at'],
                 [
                     $this->user_id,
+                    $this->ip,
                     new DateTime('now', Config::tz())->format('Y-m-d H:i:s'),
                 ],
             );
@@ -288,7 +302,7 @@ class Auth
         $current_time = new DateTime('now', Config::tz());
 
         $attempts = Query::from('login_attempts')
-            ->where('user_id', $this->user_id)
+            ->where('ip', $this->ip)
             ->where(
                 'created_at',
                 '>',
@@ -324,7 +338,7 @@ class Auth
         $current_time = new DateTime('now', Config::tz());
 
         $attempts = Query::from('login_attempts')
-            ->where('user_id', $this->user_id)
+            ->where('ip', $this->ip)
             ->where(
                 'created_at',
                 '>',
@@ -382,6 +396,10 @@ class Auth
         $this->is_authenticated = false;
         $this->session_token = null;
         $this->session_token_expiration = 0;
+        // Otherwise user_id (which reads off $this->user) keeps reporting a real id after a
+        // failed login - e.g. a wrong password for an existing username - even though
+        // isLoggedIn()/isAuthenticated() correctly report false.
+        $this->user = null;
 
         Auth::logout();
     }
@@ -631,6 +649,10 @@ class Auth
         $user_class = $this->user_model;
         $found_user = $user_class::query([$this->login_method => $this->request_data[$this->login_method]]);
         if ($found_user == null || count($found_user) == 0) {
+            // $this->user starts as a blank (but non-null) User instance from newUser(), so
+            // loginFromForm()'s `if ($this->user == null)` check needs this explicit reset -
+            // otherwise a nonexistent login silently falls through to the password checks instead.
+            $this->user = null;
             return null;
         }
 

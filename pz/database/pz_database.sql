@@ -29,7 +29,8 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `login_attempts` (
   `id` int NOT NULL,
-  `user_id` int NOT NULL,
+  `user_id` int,
+  `ip` char(45) NOT NULL,
   `created_at` datetime NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -75,15 +76,33 @@ CREATE TABLE `role_permissions` (
 -- --------------------------------------------------------
 
 --
--- Structure de la table `task_runs`
+-- Structure de la table `jobs`
+--
+-- Replaces task_runs: both a completed recurring-task run (kind = 'scheduled_task') and an ad hoc
+-- job's lifecycle (kind = 'ad_hoc_job') are rows here, so both get the same tracking capability
+-- and are queryable the same way. Column shape mirrors pz\Models\Job (pz/jobs/job.php) exactly.
 --
 
-CREATE TABLE `task_runs` (
+CREATE TABLE `jobs` (
   `id` int NOT NULL,
-  `controller` varchar(255) NOT NULL,
-  `method` varchar(255) NOT NULL,
-  `run_time` datetime NOT NULL,
-  `success` tinyint NOT NULL
+  `user_id` int NOT NULL,
+  `kind` char(255) NOT NULL,
+  `type` char(255) NOT NULL,
+  `handler_controller` char(255) NOT NULL,
+  `handler_method` char(255) NOT NULL,
+  `status` char(255) NOT NULL,
+  `payload` text,
+  `total` int,
+  `processed` int NOT NULL,
+  `message` char(255),
+  `error_message` text,
+  `attempts` int NOT NULL,
+  `started_at` datetime,
+  `locked_at` datetime,
+  `finished_at` datetime,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  `deleted_at` datetime
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
@@ -153,9 +172,9 @@ ALTER TABLE `role_permissions`
   ADD PRIMARY KEY (`role_id`);
 
 --
--- Index pour la table `task_runs`
+-- Index pour la table `jobs`
 --
-ALTER TABLE `task_runs`
+ALTER TABLE `jobs`
   ADD PRIMARY KEY (`id`);
 
 --
@@ -199,9 +218,9 @@ ALTER TABLE `role_permissions`
   MODIFY `role_id` int NOT NULL AUTO_INCREMENT;
 
 --
--- AUTO_INCREMENT pour la table `task_runs`
+-- AUTO_INCREMENT pour la table `jobs`
 --
-ALTER TABLE `task_runs`
+ALTER TABLE `jobs`
   MODIFY `id` int NOT NULL AUTO_INCREMENT;
 
 --

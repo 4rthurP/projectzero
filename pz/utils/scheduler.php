@@ -8,13 +8,46 @@ use DateTimeZone;
 use pz\Config;
 use pz\database\Database;
 use pz\database\Query;
+use pz\Enums\database\QueryOperator;
+use pz\Enums\database\QueryLink;
+use pz\Models\Job;
+
 class Scheduler {
+    // How long a claimed job's lock is honored with no owning process checking in before another
+    // tick assumes it died abnormally (e.g. OOM-killed) and reclaims the row. A clean exit always
+    // releases the lock itself, so the normal case never waits this out.
+    private const STALE_LOCK_MINUTES = 2;
+
     private array $tasks_list = [];
     private bool $is_strict;
+    private int $job_time_budget_seconds;
+    private ?DateTime $current_time_override = null;
 
-    public function __construct(bool $is_strict = false) {
+    public function __construct(bool $is_strict = false, int $job_time_budget_seconds = 45) {
         $this->tasks_list = [];
         $this->is_strict = $is_strict;
+        $this->job_time_budget_seconds = $job_time_budget_seconds;
+    }
+
+    /**
+     * Overrides the tick time budget used by runPendingJobs() (default: 45s, set in the
+     * constructor). Exposed mainly so tests can exercise the per-tick cutoff without waiting out a
+     * real budget.
+     */
+    public function setJobTimeBudget(int $seconds): static {
+        $this->job_time_budget_seconds = $seconds;
+        return $this;
+    }
+
+    /**
+     * Freezes "now" to a fixed DateTime for every subsequent getCurrentDateTime() call, instead of
+     * the real wall clock. Pass null to go back to the real clock. Exposed so tests can simulate a
+     * tick's elapsed time (budget cutoff, stale lock reclaim) deterministically, by advancing this
+     * between assertions instead of sleeping.
+     */
+    public function setCurrentTime(?DateTime $time): static {
+        $this->current_time_override = $time;
+        return $this;
     }
 
     public function addTask($task_controller, $task_method, $task_minute = '*', $task_hour = '*', $task_day = '*', $task_month = '*', $task_weekday = '*') {
@@ -59,6 +92,11 @@ class Scheduler {
                 $this->saveTaskRun($task['controller'], $task['method'], $task_response->isSuccessful());
             }
         }
+
+        // Runs after the recurring-task pass, in the same tick, sharing its time budget: a slow ad
+        // hoc job can't starve recurring tasks (it only runs once that pass is done), and recurring
+        // tasks keep running exactly as fast as they do today.
+        $this->runPendingJobs($cron_start_time);
     }
 
 
@@ -250,14 +288,20 @@ class Scheduler {
     /**
      * Retrieves the last run of a specific task in the scheduler.
      *
+     * Reads from the shared `jobs` table (kind = 'scheduled_task'), which replaced the old
+     * task_runs table so both scheduled and ad hoc work share one tracking entity. `created_at` is
+     * aliased to `run_time` so taskWasDue(), which is otherwise untouched, keeps working unchanged.
+     *
      * @param string $controller The controller name.
      * @param string $method The method name.
      * @return mixed The last task run, or null if not found.
      */
     private function getLastTaskRun(string $controller, string $method): ?array {
-        $last_run = Query::from('task_runs')
-                         ->where('controller', $controller)
-                         ->where('method', $method)
+        $last_run = Query::from('jobs')
+                         ->get('created_at AS run_time')
+                         ->where('kind', 'scheduled_task')
+                         ->where('handler_controller', $controller)
+                         ->where('handler_method', $method)
                          ->order('run_time', false)
                          ->first();
         return $last_run;
@@ -266,15 +310,42 @@ class Scheduler {
     /**
      * Saves the task run information to the database.
      *
+     * Writes a `jobs` row (kind = 'scheduled_task') instead of a task_runs row: it's created
+     * already completed/failed with processed = total = 1, mirroring exactly what task_runs used
+     * to record for a synchronous, no-argument recurring task run.
+     *
+     * user_id is required on every Job (per-owner privacy for ad hoc jobs relies on it), but a
+     * scheduled_task row has no real owner - it's seeded with a fixed sentinel account
+     * (SYSTEM_USER_ID config, default 0). These rows are never read through the user-facing
+     * JobController::get() action, so the sentinel is inert.
+     *
      * @param string $controller The controller name.
      * @param string $method The method name.
      * @param bool $task_successful Indicates whether the task was successful or not.
-     * @return int Returns the new line's id.
+     * @return int|string|null Returns the new row's id.
      */
     private function saveTaskRun(string $controller, string $method, bool $task_successful) {
-        $current_datime = new DateTime("now", Config::tz());
+        $now = $this->getCurrentDateTime()->format('Y-m-d H:i:s');
 
-        return Database::execute('INSERT INTO task_runs (controller, method, run_time, success) VALUES (?, ?, ?, ?)', 'ssss', $controller, $method, $current_datime->format('Y-m-d H:i:s'), $task_successful);
+        $job = new Job();
+        $job->create([
+            'user_id' => Config::get('SYSTEM_USER_ID'),
+            'kind' => 'scheduled_task',
+            'type' => $controller . '::' . $method,
+            'handler_controller' => $controller,
+            'handler_method' => $method,
+            'status' => $task_successful ? 'completed' : 'failed',
+            'total' => 1,
+            'processed' => 1,
+            'started_at' => $now,
+            'finished_at' => $now,
+        ]);
+
+        if (!$job->isValid()) {
+            throw new \Exception('Failed to save the scheduled task run as a job: ' . json_encode($job->getFormMessages()));
+        }
+
+        return $job->getId();
     }
 
     /**
@@ -307,12 +378,173 @@ class Scheduler {
     }
 
     /**
-     * Returns the current date and time.
+     * Returns the current date and time, or the fixed time set via setCurrentTime() if one is set.
      *
      * @return DateTime The current date and time.
      */
     private function getCurrentDateTime() {
-        return new DateTime("now", Config::tz());
+        return $this->current_time_override ?? new DateTime("now", Config::tz());
+    }
+
+    ############################
+    # Ad hoc job processing
+    ############################
+
+    /**
+     * Runs ad hoc jobs (kind = 'ad_hoc_job') for whatever time budget is left in this tick, after
+     * the recurring-task pass above. The handler contract is one unit of work per call (one book,
+     * one row - whatever the smallest meaningful chunk is for that job type); this method owns the
+     * loop and checks the wall clock before every call it makes, so a handler can never decide on
+     * its own to run long. This bounds the runner's own worst-case overrun to roughly one unit's
+     * own worst-case duration past the budget, not an open-ended "however long the handler felt
+     * like running".
+     *
+     * @param DateTime $tick_start The time this tick started, captured once in runScheduler().
+     * @return void
+     */
+    private function runPendingJobs(DateTime $tick_start): void {
+        while ($this->secondsSince($tick_start) < $this->job_time_budget_seconds) {
+            $job = $this->claimNextJob();
+            if ($job === null) {
+                return; // nothing eligible left this tick
+            }
+
+            while ($this->secondsSince($tick_start) < $this->job_time_budget_seconds) {
+                try {
+                    $controller = new ($job->get('handler_controller'))();
+                    $method = $job->get('handler_method');
+                    $more_work_remains = $controller->$method($job); // handler: ONE unit, mutates $job via set(), returns bool
+                } catch (\Throwable $exception) {
+                    // Stop this tick's job processing entirely rather than continue 2 (claim
+                    // another job): a retryable failure puts the job straight back to 'pending'
+                    // with no lock, so continuing here could immediately re-claim and re-fail it
+                    // in a tight loop within the same tick, burning all 3 attempts in an instant.
+                    // "No backoff curve - the tick granularity already spaces retries out" only
+                    // holds if a retry actually waits for the next real tick, which this ensures.
+                    $this->handleJobFailure($job, $exception);
+                    return;
+                }
+
+                if (!$more_work_remains) {
+                    $job->set('status', 'completed', true);
+                    $job->set('finished_at', $this->getCurrentDateTime()->format('Y-m-d H:i:s'), true);
+                    $job->set('locked_at', null, true); // a clean exit always releases the lock
+                    continue 2; // budget may remain - go claim another job
+                }
+                $job->set('locked_at', $this->getCurrentDateTime()->format('Y-m-d H:i:s'), true); // refresh the lock
+            }
+
+            // Budget exhausted mid-job (not done): release the lock cleanly so the very next tick
+            // can resume immediately, instead of waiting out the staleness window.
+            $job->set('locked_at', null, true);
+            return;
+        }
+    }
+
+    /**
+     * Applies the bounded, unsophisticated failure policy for an ad hoc job's handler call: no
+     * backoff curve (the minute-level tick granularity already spaces retries out), and no
+     * automatic retry once a job is permanently failed - a manual re-trigger (the module's own
+     * start() action again, creating a fresh row) is the way to retry at this scale.
+     *
+     * @param Job $job The job whose handler call just threw.
+     * @param \Throwable $exception The exception raised by the handler call.
+     * @return void
+     */
+    private function handleJobFailure(Job $job, \Throwable $exception): void {
+        $attempts = (int) $job->get('attempts') + 1;
+        $job->set('attempts', $attempts, true);
+        $job->set('error_message', $exception->getMessage(), true);
+
+        if ($attempts < 3) {
+            // Release the lock and make it eligible again so a later tick retries it.
+            $job->set('status', 'pending', true);
+            $job->set('locked_at', null, true);
+            return;
+        }
+
+        $job->set('status', 'failed', true);
+        $job->set('finished_at', $this->getCurrentDateTime()->format('Y-m-d H:i:s'), true);
+        $job->set('locked_at', null, true);
+    }
+
+    /**
+     * Atomically claims the next eligible ad hoc job, so two overlapping cron ticks (e.g. tick N's
+     * handler call still running past a minute while tick N+1 starts) can't both grab the same row.
+     * Model::update() only ever builds `UPDATE table SET ... WHERE id = ?`, with no way to add the
+     * extra `AND status = ... AND locked_at ...` condition claiming needs, so this one step is a raw
+     * conditional UPDATE via Database::execute(), checked for affected-row count - the one
+     * deliberate exception to "always go through the Job model" in this class.
+     *
+     * A job is eligible if it's pending/running and either never locked or locked long enough ago
+     * (STALE_LOCK_MINUTES) to assume its owning process died abnormally (e.g. OOM-killed) without
+     * releasing its lock. A clean exit (budget exhausted, or job completed/failed) always releases
+     * the lock itself, so the normal case never waits out that window.
+     *
+     * @return Job|null The claimed job, or null if there was nothing eligible or another tick won
+     *                   the race for the candidate row.
+     */
+    private function claimNextJob(): ?Job {
+        $stale_threshold = (clone $this->getCurrentDateTime())
+            ->modify('-' . self::STALE_LOCK_MINUTES . ' minutes')
+            ->format('Y-m-d H:i:s');
+
+        // Passing a bare `null` (rather than QueryOperator::IS_NULL) for the "locked_at IS NULL"
+        // half of this group is intentional, not a style choice: WhereGroup::addQuery() forwards a
+        // 2-element ['column', $operator] array's group link into WhereClause's *value* slot when
+        // $operator is itself a QueryOperator instance, so ['locked_at', QueryOperator::IS_NULL]
+        // ends up trying to use the QueryLink as the compared value and throws a TypeError.
+        // ['locked_at', null] avoids the bug: WhereClause already renders a plain null value as
+        // "IS NULL" via its EQUALS-with-null shortcut, taking the same code path where the group
+        // link is threaded through correctly.
+        $candidate = Query::from('jobs')
+            ->where('kind', 'ad_hoc_job')
+            ->whereIn('status', ['pending', 'running'])
+            ->whereGroup([
+                ['locked_at', null],
+                ['locked_at', QueryOperator::LESS_THAN, $stale_threshold],
+            ], QueryLink::OR)
+            ->order('created_at')
+            ->first();
+
+        if ($candidate === null) {
+            return null;
+        }
+
+        $now = $this->getCurrentDateTime()->format('Y-m-d H:i:s');
+        $claimed = Database::execute(
+            "UPDATE jobs SET status = 'running', locked_at = ?, started_at = COALESCE(started_at, ?)
+             WHERE id = ? AND status IN ('pending','running')
+               AND (locked_at IS NULL OR locked_at < ?)",
+            'ssis',
+            $now,
+            $now,
+            $candidate['id'],
+            $stale_threshold,
+        );
+
+        if ($claimed !== 1) {
+            return null; // lost the race to another tick
+        }
+
+        // Hydrated from the pre-claim SELECT above rather than Job::find(): Job keeps the standard
+        // PROTECTED privacy (per-owner access for JobController::get()), and Model::find() always
+        // routes through startQuery(), which requires a logged-in $_SESSION['user']['id'] for a
+        // PROTECTED model - there is none in a cron run, so Job::find() would throw here.
+        // loadFromArray() skips that privacy-scoped SELECT entirely, which is safe: none of the
+        // columns the UPDATE just touched (status/locked_at/started_at) are read back from this
+        // object anywhere below, only written.
+        $job = new Job();
+        $job->loadFromArray($candidate);
+        return $job;
+    }
+
+    /**
+     * @param DateTime $start
+     * @return int Whole seconds elapsed between $start and the current time.
+     */
+    private function secondsSince(DateTime $start): int {
+        return $this->getCurrentDateTime()->getTimestamp() - $start->getTimestamp();
     }
 
 }

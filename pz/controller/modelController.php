@@ -58,7 +58,7 @@ class ModelController extends Controller
      */
     public static function getApiEndpoints()
     {
-        return self::$api_endpoints;
+        return static::$api_endpoints;
     }
 
     /**

@@ -32,6 +32,7 @@ class Config
         'USER_BAN_TIME' => 3600,
         'USER_ATTEMPTS_THRESHOLD' => 5,
         'USER_RECENT_ATTEMPT_TIME' => 5,
+        'SYSTEM_USER_ID' => 0, // owner sentinel for jobs rows that aren't user-triggered (e.g. scheduled_task runs)
     ];
 
     private function __construct()
