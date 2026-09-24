@@ -126,6 +126,21 @@ class Auth
             return $this;
         }
 
+        // Reuse the session token this PHP session already holds: without it, loginUser() fell
+        // through to createSessionToken() on every request — a ~150ms bcrypt hash plus a new
+        // user_sessions row per page load. Sessions predating session_id being stored mint one
+        // last token, then reuse it.
+        $session = $_SESSION['user'];
+        if (
+            isset($session['session_id'], $session['session_token'], $session['session_expiration'], $session['session_token_issued'])
+            && $session['session_expiration'] > time()
+        ) {
+            $this->session_id = (int) $session['session_id'];
+            $this->session_token = $session['session_token'];
+            $this->session_token_expiration = (int) $session['session_expiration'];
+            $this->session_token_issued_at = (int) $session['session_token_issued'];
+        }
+
         return $this->loginUser();
     }
 
@@ -221,6 +236,7 @@ class Auth
             $this->createSessionToken();
         }
 
+        $_SESSION['user']['session_id'] = $this->session_id;
         $_SESSION['user']['session_token'] = $this->session_token;
         $_SESSION['user']['session_expiration'] = $this->session_token_expiration;
         $_SESSION['user']['session_token_issued'] = $this->session_token_issued_at;

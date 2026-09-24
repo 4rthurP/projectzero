@@ -68,6 +68,33 @@ final class authTest extends TestCase
         // $this->assertEquals($_COOKIE['user_session_token'], $this->added_user->getId() . '::' . $_SESSION['user']['session_token']);
     }
 
+    /** Regression: loginFromSession() used to mint a new token (bcrypt + INSERT) on every request. */
+    public function testLoginFromSessionReusesTheSessionToken(): void
+    {
+        $this->auth->loginFromForm();
+        $token = $_SESSION['user']['session_token'];
+
+        for ($i = 0; $i < 3; $i++) {
+            $auth = new DummyAuth([]);
+            $auth->loginFromSession();
+            $this->assertTrue($auth->isLoggedIn());
+        }
+
+        $this->assertSame($token, $_SESSION['user']['session_token']);
+        $this->assertSame(1, Query::from('user_sessions')->where('user_id', $this->added_user->getId())->count());
+    }
+
+    public function testLoginFromSessionWithoutAStoredSessionIdMintsOneTokenThenReusesIt(): void
+    {
+        $this->auth->loginFromForm();
+        unset($_SESSION['user']['session_id']);
+
+        (new DummyAuth([]))->loginFromSession();
+        (new DummyAuth([]))->loginFromSession();
+
+        $this->assertSame(2, Query::from('user_sessions')->where('user_id', $this->added_user->getId())->count());
+    }
+
     public function testUserLoginCreatedSessionInDatabase(): void
     {
         $this->markTestIncomplete('This test has not been implemented yet.');
