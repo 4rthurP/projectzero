@@ -318,7 +318,12 @@ class Database
         $text = date('Y-m-d H:i:s') . ' - Done in ' . $time . 's : ' . $query . PHP_EOL;
         $debug_backtrace = debug_backtrace();
         foreach ($debug_backtrace as $trace) {
-            $text .= 'Called from: ' . $trace['file'] . ' on line ' . $trace['line'] . PHP_EOL;
+            // Not every frame has these — a call made through certain internal mechanisms (e.g. a
+            // closure invoked via array_map(), or the outermost frame) omits 'file'/'line' entirely,
+            // per debug_backtrace()'s own documented behavior. Missing either one used to throw a
+            // "headers already sent" error later for any query slow enough to reach this method,
+            // since the resulting warning was printed to output before the real response was sent.
+            $text .= 'Called from: ' . ($trace['file'] ?? 'unknown') . ' on line ' . ($trace['line'] ?? '?') . PHP_EOL;
         }
         $text .= '----------------------------------------' . PHP_EOL;
         file_put_contents($_ENV['APP_PATH'] . '/database/queries.log', $text, FILE_APPEND);
