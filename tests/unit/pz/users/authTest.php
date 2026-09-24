@@ -23,9 +23,10 @@ final class authTest extends TestCase
     public static function incorrectCredentialsProvider(): array
     {
         return [
-            'wrong username' => [['username' => 'wronguser', 'password' => 'testpassword']],
-            'wrong password' => [['username' => 'testuser', 'password' => 'wrongpassword']],
-            'empty credentials' => [['username' => '', 'password' => '']],
+            // Throttling is per user: only a wrong password for an existing user is recorded.
+            'wrong username' => [['username' => 'wronguser', 'password' => 'testpassword'], 0],
+            'wrong password' => [['username' => 'testuser', 'password' => 'wrongpassword'], 1],
+            'empty credentials' => [['username' => '', 'password' => ''], 0],
         ];
     }
 
@@ -95,6 +96,64 @@ final class authTest extends TestCase
         $this->assertSame(2, Query::from('user_sessions')->where('user_id', $this->added_user->getId())->count());
     }
 
+    public function testExpiredSessionLogsOut(): void
+    {
+        $this->auth->loginFromForm();
+        $_SESSION['user']['session_expiration'] = time() - 1;
+
+        $auth = new DummyAuth([]);
+        $auth->loginFromSession();
+
+        $this->assertFalse($auth->isLoggedIn());
+        $this->assertSame('expired-session', $auth->getError());
+    }
+
+    public function testSessionFarFromExpiringIsNotRenewed(): void
+    {
+        $this->auth->loginFromForm();
+        $expiration = $_SESSION['user']['session_expiration'];
+
+        (new DummyAuth([]))->loginFromSession();
+
+        $this->assertSame($expiration, $_SESSION['user']['session_expiration']);
+    }
+
+    public function testSessionNearExpirationIsRenewedByOneRenewalPeriod(): void
+    {
+        $this->auth->loginFromForm();
+        $lifetime = (int) Config::get('USER_SESSION_LIFETIME');
+        $renewal = (int) Config::get('USER_SESSION_RENEWAL');
+        $expiration = time() + 100;
+        $_SESSION['user']['session_expiration'] = $expiration;
+        $_SESSION['user']['session_token_issued'] = $expiration - $lifetime;
+
+        (new DummyAuth([]))->loginFromSession();
+
+        $this->assertSame($expiration + $renewal, $_SESSION['user']['session_expiration']);
+        $in_db = Query::from('user_sessions')->where('id', $_SESSION['user']['session_id'])->first();
+        $this->assertSame($expiration + $renewal, strtotime($in_db['expiration']));
+    }
+
+    public function testRenewalIsCappedAtTheMaximumSessionTime(): void
+    {
+        $this->auth->loginFromForm();
+        $maximum = (int) Config::get('USER_SESSION_LIFETIME')
+            + (int) Config::get('USER_SESSION_RENEWAL') * (int) Config::get('USER_SESSION_RENEWAL_MAX');
+
+        // Near expiration, 1000s short of the cap: the renewal only reaches the cap.
+        $_SESSION['user']['session_expiration'] = time() + 100;
+        $_SESSION['user']['session_token_issued'] = time() + 1000 - $maximum;
+        (new DummyAuth([]))->loginFromSession();
+        $capped = $_SESSION['user']['session_expiration'];
+        $this->assertSame($_SESSION['user']['session_token_issued'] + $maximum, $capped);
+
+        // Already at the cap: no further renewal, the session just runs out.
+        $_SESSION['user']['session_expiration'] = time() + 100;
+        $_SESSION['user']['session_token_issued'] = time() + 100 - $maximum;
+        (new DummyAuth([]))->loginFromSession();
+        $this->assertSame(time() + 100, $_SESSION['user']['session_expiration']);
+    }
+
     public function testUserLoginCreatedSessionInDatabase(): void
     {
         $this->markTestIncomplete('This test has not been implemented yet.');
@@ -113,10 +172,9 @@ final class authTest extends TestCase
     }
 
     #[DataProvider('incorrectCredentialsProvider')]
-    public function testIncorrectCredentialsDoesNotWork(array $credentials): void
+    public function testIncorrectCredentialsDoesNotWork(array $credentials, int $recorded_attempts): void
     {
         $auth = new DummyAuth($credentials);
-        $auth->setIp('1.1.1.2');
         $auth->loginFromForm();
 
         $this->assertFalse($auth->isValid());
@@ -125,9 +183,8 @@ final class authTest extends TestCase
         $this->assertNull($auth->user_id);
         $this->assertEquals('login-failed', $auth->getError());
 
-        // Check that a failed login attempt was registered
-        $attempts = Query::from('login_attempts')->where('ip', '1.1.1.2')->fetch();
-        $this->assertCount(1, $attempts);
+        $attempts = Query::from('login_attempts')->where('user_id', $this->added_user->getId())->fetch();
+        $this->assertCount($recorded_attempts, $attempts);
     }
 
     public function testTooRapidLoginAttemptsAreBlocked(): void
@@ -145,7 +202,7 @@ final class authTest extends TestCase
         // $this->assertEquals('login-failed', $this->auth->getError());
         // // Check that a failed login attempt was registered
         // $attempts = Query::from('login_attempts')
-        //     ->where('ip', '1.1.1.2')
+        //     ->where('user_id', $this->added_user->getId())
         //     ->fetch();
         // $this->assertCount(2, $attempts);
     }
@@ -167,7 +224,7 @@ final class authTest extends TestCase
         $this->assertEquals('unauthorized-login', $this->incorrect_auth->getError());
 
         // Check that a failed login attempt was registered
-        $attempts = Query::from('login_attempts')->where('ip', '1.1.1.2')->fetch();
+        $attempts = Query::from('login_attempts')->where('user_id', $this->added_user->getId())->fetch();
         $this->assertTrue(count($attempts) >= $attempts_limit);
     }
 
@@ -196,13 +253,13 @@ final class authTest extends TestCase
         $this->added_user = $user;
 
         $this->auth = new DummyAuth($this->user_data);
-        $this->auth->setIp('1.1.1.1');
 
+        // An existing user with a wrong password: throttling is per user, so a nonexistent
+        // username never accumulates attempts.
         $this->incorrect_auth = new DummyAuth([
-            'username' => 'wronguser',
+            'username' => $this->user_data['username'],
             'password' => 'wrongpassword',
         ]);
-        $this->incorrect_auth->setIp('1.1.1.2');
     }
 
     protected function tearDown(): void

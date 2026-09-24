@@ -30,8 +30,6 @@ class Auth
 
     protected array $request_data;
 
-    protected ?string $ip = null;
-
     protected ?string $error = null;
     protected ?string $error_message = null;
 
@@ -50,9 +48,6 @@ class Auth
         }
 
         $this->request_data = $request_data;
-        // From the server, not $request_data: the request body is client-controlled and
-        // therefore spoofable, which would defeat IP-based login throttling.
-        $this->ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
         $this->user_model = $user_model;
         $this->user = $this->newUser();
@@ -69,7 +64,7 @@ class Auth
      * @return static Returns the current instance of the class for method chaining.
      *
      * The method does the following:
-     * - Checks if a login attempt can be made from the given IP address.
+     * - Checks that the user exists and is allowed to make a login attempt.
      * - Validates the user credentials provided in the form data.
      * - If all checks pass, it calls the loginUser method to set the user session.
      */
@@ -80,17 +75,15 @@ class Auth
             return $this;
         }
 
-        // Checking security first and by IP, not by user: the throttle exists to slow down
-        // brute-forcing, which includes guessing usernames, so it must apply whether or not the
-        // attempted login name resolves to a real user.
-        if (!$this->checkCanMakeLoginAttempt()) {
-            return $this;
-        }
-
         // Checking if the user exists
         $this->findUser();
         if ($this->user == null) {
             return $this->failedLoginAttempt('This user does not exist.');
+        }
+
+        // Throttling is per user, so it can only run once the user is known.
+        if (!$this->checkCanMakeLoginAttempt()) {
+            return $this;
         }
 
         // Checking password
@@ -101,6 +94,7 @@ class Auth
             return $this->failedLoginAttempt('Incorrect password');
         }
 
+        self::regenerateSessionId();
         return $this->loginUser();
     }
 
@@ -131,10 +125,12 @@ class Auth
         // user_sessions row per page load. Sessions predating session_id being stored mint one
         // last token, then reuse it.
         $session = $_SESSION['user'];
-        if (
-            isset($session['session_id'], $session['session_token'], $session['session_expiration'], $session['session_token_issued'])
-            && $session['session_expiration'] > time()
-        ) {
+        if (isset($session['session_id'], $session['session_token'], $session['session_expiration'], $session['session_token_issued'])) {
+            // Same rule as loginFromSessionToken(): an expired session means logging in again,
+            // otherwise an active PHP session would outlive the renewal cap forever.
+            if ($session['session_expiration'] <= time()) {
+                return $this->failedLoginAttempt('Expired session.', 'expired-session', register_attempt: false);
+            }
             $this->session_id = (int) $session['session_id'];
             $this->session_token = $session['session_token'];
             $this->session_token_expiration = (int) $session['session_expiration'];
@@ -204,7 +200,20 @@ class Auth
         $this->session_token_expiration = strtotime($session['expiration']);
         $this->session_token_issued_at = strtotime($session['issued_at']);
 
+        self::regenerateSessionId();
         return $this->loginUser();
+    }
+
+    /**
+     * New PHP session id at every login (form or remember-me cookie), keeping its data: an id
+     * planted in the browser before login (session fixation) never becomes an authenticated one.
+     * Not on each request — only when the privilege level changes.
+     */
+    protected static function regenerateSessionId(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
     }
 
     /**
@@ -260,13 +269,13 @@ class Auth
         $this->error = $error ?? 'login-failed';
         $this->error_message = $message ?? 'Failed login attempt.';
 
-        if ($register_attempt) {
+        // An unknown login name has no user to throttle (login_attempts.user_id is NOT NULL).
+        if ($register_attempt && $this->user_id !== null) {
             Database::insert(
                 'login_attempts',
-                ['user_id', 'ip', 'created_at'],
+                ['user_id', 'created_at'],
                 [
                     $this->user_id,
-                    $this->ip,
                     new DateTime('now', Config::tz())->format('Y-m-d H:i:s'),
                 ],
             );
@@ -277,23 +286,23 @@ class Auth
     }
 
     /**
-     * Checks if a login attempt can be made from the given IP address.
+     * Checks if the user is allowed to make a login attempt.
      *
      * This method verifies two conditions:
-     * 1. Whether the IP address is currently banned from making login attempts.
-     * 2. Whether the IP address has made a recent login attempt.
+     * 1. Whether the user is currently banned from making login attempts.
+     * 2. Whether the user has made a recent login attempt.
      *
-     * @return bool Returns true if the IP address is allowed to make a login attempt,
+     * @return bool Returns true if the user is allowed to make a login attempt,
      *              false otherwise.
      */
     protected function checkCanMakeLoginAttempt()
     {
-        $has_attempt_ban = $this->checkIfIpIsBanned();
+        $has_attempt_ban = $this->checkIfUserIsBanned();
         if ($has_attempt_ban) {
             return false;
         }
 
-        $has_recent_attempt = $this->checkIfIpHasRecentAttempt();
+        $has_recent_attempt = $this->checkIfUserHasRecentAttempt();
         if ($has_recent_attempt) {
             return false;
         }
@@ -302,23 +311,23 @@ class Auth
     }
 
     /**
-     * Checks if the given IP address is banned due to too many login attempts.
+     * Checks if the user is banned due to too many login attempts.
      *
-     * This method retrieves the number of login attempts made from the specified IP
-     * address within a time frame defined by the configuration. If the number of
-     * attempts exceeds the threshold, the IP is considered banned, and an error
-     * message is added to the login messages.
+     * This method retrieves the number of failed login attempts made for the user within a
+     * time frame defined by the configuration. If the number of attempts exceeds the
+     * threshold, the user is considered banned, and an error message is added to the login
+     * messages.
      *
-     * @return bool Returns true if the IP is banned, false otherwise.
+     * @return bool Returns true if the user is banned, false otherwise.
      */
-    protected function checkIfIpIsBanned()
+    protected function checkIfUserIsBanned()
     {
         $ban_time = Config::get('USER_BAN_TIME');
         $ban_threshold = Config::get('USER_ATTEMPTS_THRESHOLD');
         $current_time = new DateTime('now', Config::tz());
 
         $attempts = Query::from('login_attempts')
-            ->where('ip', $this->ip)
+            ->where('user_id', $this->user_id)
             ->where(
                 'created_at',
                 '>',
@@ -339,22 +348,22 @@ class Auth
     }
 
     /**
-     * Checks if the given IP address has made a recent login attempt within the configured time frame.
+     * Checks if the user has made a recent login attempt within the configured time frame.
      *
-     * This method queries the `login_attempts` table to determine if there are any login attempts
-     * from the specified IP address that occurred within the time period defined by the
+     * This method queries the `login_attempts` table to determine if there are any failed login
+     * attempts for the user that occurred within the time period defined by the
      * `USER_RECENT_ATTEMPT_TIME` configuration value. If such attempts are found, the method
      * marks the current instance as invalid and adds an error message to the messages array.
      *
      * @return bool Returns true if a recent login attempt is found, otherwise false.
      */
-    protected function checkIfIpHasRecentAttempt()
+    protected function checkIfUserHasRecentAttempt()
     {
         $recent_attempt_time = Config::get('USER_RECENT_ATTEMPT_TIME');
         $current_time = new DateTime('now', Config::tz());
 
         $attempts = Query::from('login_attempts')
-            ->where('ip', $this->ip)
+            ->where('user_id', $this->user_id)
             ->where(
                 'created_at',
                 '>',
@@ -386,7 +395,12 @@ class Auth
      */
     public static function logout()
     {
-        session_destroy();
+        // A failed login already logged out once (failedLoginAttempt() -> logoutUser()) before
+        // the application calls this again; a second session_destroy() warns, and that warning
+        // is output that then blocks the redirect to the login page.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
         self::cookie('user_session_token', '');
         self::cookie('user_nonce', '');
         self::cookie('user_nonce_expiration', '');
@@ -485,8 +499,12 @@ class Auth
      *
      * Conditions for renewal:
      * - Session renewal must be enabled.
-     * - The current session duration must not exceed the maximum allowable session time.
-     * - The session must be nearing expiration (based on the configured renewal time).
+     * - The session must not already expire at the maximum allowable time.
+     * - The session must be nearing expiration: less than half a renewal period left.
+     *
+     * Each renewal pushes the expiration back by one renewal period, capped at the maximum, so a
+     * session lives at most USER_SESSION_LIFETIME + USER_SESSION_RENEWAL * USER_SESSION_RENEWAL_MAX
+     * after it was issued, then the user has to log in again.
      */
     protected function checkIfSessionCanBeRenewed(): bool
     {
@@ -497,33 +515,16 @@ class Auth
         $session_renewal_time = Config::get('USER_SESSION_RENEWAL');
         $session_renewal_max = Config::get('USER_SESSION_RENEWAL_MAX');
 
-        $maximum_session_time = $session_lifetime + ($session_renewal_time * $session_renewal_max);
-
-        $current_session_time = time() - $this->session_token_issued_at;
-        $current_session_duration = $this->session_token_expiration - $this->session_token_issued_at;
-
-        // The current session is already set to expire at the maximum time
-        if ($current_session_duration >= $maximum_session_time) {
+        $maximum_expiration = $this->session_token_issued_at + $session_lifetime + ($session_renewal_time * $session_renewal_max);
+        if ($this->session_token_expiration >= $maximum_expiration) {
             return false;
         }
 
-        // The current session does not expire before half of the renewal time
-        if ($current_session_time < ($session_lifetime / 2)) {
+        if ($this->session_token_expiration - time() >= $session_renewal_time / 2) {
             return false;
         }
 
-        // Same for each of the renewal times, check if the session is not about to expire (ie less than half of the renewal time)
-        for ($i = 1; $i <= $session_renewal_max; $i++) {
-            if (
-                $current_session_time
-                < ($session_lifetime + ($session_renewal_time * ($i - 1)) + ($session_renewal_time / 2))
-            ) {
-                return false;
-            }
-        }
-
-        // The session is about to expire, we need to renew it
-        $new_expiration = time() + $session_renewal_time;
+        $new_expiration = min($this->session_token_expiration + $session_renewal_time, $maximum_expiration);
         Database::execute(
             'UPDATE user_sessions SET expiration = ? WHERE id = ? AND user_id = ?',
             'sii',
@@ -535,6 +536,10 @@ class Auth
         );
 
         $this->session_token_expiration = $new_expiration;
+
+        // The remember-me cookie carries its own expiry: without re-issuing it, the browser drops
+        // it at the original expiration whatever the database says.
+        self::cookie('user_session_token', $this->getSessionToken(), $new_expiration);
 
         return true;
     }

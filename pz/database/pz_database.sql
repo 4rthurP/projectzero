@@ -18,9 +18,9 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `login_attempts` (
   `id` int AUTO_INCREMENT PRIMARY KEY,
-  `user_id` int,
-  `ip` char(45) NOT NULL,
-  `created_at` datetime NOT NULL
+  `user_id` int NOT NULL,
+  `created_at` datetime NOT NULL,
+  KEY `idx_user_created` (`user_id`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --

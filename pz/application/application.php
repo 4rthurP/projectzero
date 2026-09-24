@@ -63,6 +63,12 @@ class Application extends ApplicationBase
             // If the request could not be built, we return the response
             // This is usually the case when the user is not authenticated or the request method is invalid
             $this->log_response($build_response);
+            // A page must actually be sent to the login form (e.g. after an expired session),
+            // otherwise the browser is left on an empty page. API calls (run(false)) keep the JSON.
+            if (($auto_render ?? $this->auto_render) && $build_response->hasRedirect()) {
+                header($build_response->getRedirect());
+                exit();
+            }
             return $build_response;
         }
 
