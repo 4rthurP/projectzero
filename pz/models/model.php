@@ -350,7 +350,7 @@ class Model
                 );
             }
         } else {
-            if($this->attributeExists($timestampUpdatedAtName)) {
+            if($timestampUpdatedAtName !== null && $this->attributeExists($timestampUpdatedAtName)) {
                 $this->unsetAttribute($timestampUpdatedAtName);
             }
             $this->timestampUpdatedAtName = null;
@@ -368,7 +368,7 @@ class Model
                 );
             }
         } else {
-            if($this->attributeExists($timestampCreatedAtName)) {
+            if($timestampCreatedAtName !== null && $this->attributeExists($timestampCreatedAtName)) {
                 $this->unsetAttribute($timestampCreatedAtName);
             }
             $this->timestampCreatedAtName = null;
