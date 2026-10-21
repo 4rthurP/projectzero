@@ -77,6 +77,10 @@ class Job extends Model {
         $job_id = (int) $this->getId();
         register_shutdown_function(function () use ($job_id) {
             fastcgi_finish_request();
+            // The session file lock is otherwise held until this worker fully exits, i.e. for the
+            // whole drain below — blocking every request from the same user meanwhile, including
+            // the job/get polling that's supposed to show this job's progress live.
+            session_write_close();
             try {
                 // Passing this job's own id so it gets claimed first (see
                 // Scheduler::drainPendingJobsNow()'s doc comment): without it, an older backlog

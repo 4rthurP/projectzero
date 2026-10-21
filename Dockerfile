@@ -1,10 +1,11 @@
-FROM php:8.5.10-fpm
+FROM php:8.5.12RC1-fpm
 
 # Set build arguments from .env file
 ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG PZ_FOLDER=app
 ARG CRON_SCHEDULE='* * * * *'
+ARG JOB_CRON_SCHEDULE='* * * * *'
 ARG SCHEDULE_TOKEN
 
 # Install dependencies
@@ -30,6 +31,7 @@ RUN groupadd -g ${GROUP_ID} pz-user && \
 RUN if [ ! -z "$SCHEDULE_TOKEN" ]; then \
     echo "Running scheduler install"; \
     echo "${CRON_SCHEDULE} pz-user CRON_TOKEN=${SCHEDULE_TOKEN} $(which php) /var/www/${PZ_FOLDER}/schedule.php >> /var/log/cron.log 2>&1" > /etc/cron.d/pz-cron \
+    && echo "${JOB_CRON_SCHEDULE} pz-user CRON_TOKEN=${SCHEDULE_TOKEN} $(which php) /var/www/${PZ_FOLDER}/process_jobs.php >> /var/log/cron.log 2>&1" >> /etc/cron.d/pz-cron \
     && touch /var/log/cron.log \
     && chmod 666 /var/log/cron.log; \
 else \
