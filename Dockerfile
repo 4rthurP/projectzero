@@ -1,4 +1,4 @@
-FROM php:8.5.12RC1-fpm
+FROM php:8.5.12-fpm
 
 # Set build arguments from .env file
 ARG USER_ID=1000
